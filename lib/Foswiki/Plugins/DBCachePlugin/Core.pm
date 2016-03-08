@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2015 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2016 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -108,7 +108,7 @@ sub renderWikiWordHandler {
 sub afterSaveHandler {
   my ($web, $topic, $newWeb, $newTopic, $attachment, $newAttachment) = @_;
 
-  #writeDebug("called afterSaveHandler($web, $topic, $newWeb, $newTopic, ..., ...)");
+  #writeDebug("called afterSaveHandler($web, $topic)");
 
   $newWeb ||= $web;
   $newTopic ||= $topic;
@@ -171,17 +171,22 @@ sub handleNeighbours {
   $theSearch = $params->{search} unless defined $theSearch;
 
   my $theFormat = $params->{format} || '$web.$topic';
-  my $theOrder = $params->{order} || 'created';
+  my $theOrder = $params->{sort} || $params->{order} || 'created';
   my $theReverse = $params->{reverse} || 'off';
+  my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
 
-  return inlineError("ERROR: no \"search\" parameter in DBPREV/DBNEXT") unless $theSearch;
+  unless ($theSearch) {
+    return $doWarnings?lineError("ERROR: no \"search\" parameter in DBPREV/DBNEXT"):"";
+  }
 
   #writeDebug('theFormat='.$theFormat);
   #writeDebug('theSearch='. $theSearch) if $theSearch;
 
   
   my $db = getDB($theWeb);
-  return inlineError("ERROR: DBPREV/DBNEXT unknown web '$theWeb'") unless $db;
+  unless ($db) {
+    return $doWarnings?inlineError("ERROR: DBPREV/DBNEXT unknown web '$theWeb'"):"";
+  }
 
   my ($prevTopic, $nextTopic) = $db->getNeighbourTopics($theTopic, $theSearch, $theOrder, $theReverse);
 
@@ -198,10 +203,10 @@ sub handleNeighbours {
   }
 
   $result =~ s/\$web/$theWeb/g;
-  $result =~ s/\$perce?nt/\%/go;
+  $result =~ s/\$perce?nt/\%/g;
   $result =~ s/\$nop//g;
-  $result =~ s/\$n/\n/go;
-  $result =~ s/\$dollar/\$/go;
+  $result =~ s/\$n/\n/g;
+  $result =~ s/\$dollar/\$/g;
 
   return $result;
 }
@@ -219,8 +224,8 @@ sub handleTOPICTITLE {
   my $theRev = $params->{rev};
   my $theHideAutoInc = Foswiki::Func::isTrue($params->{hideautoinc}, 0);
 
-  $thisTopic =~ s/^\s+//go;
-  $thisTopic =~ s/\s+$//go;
+  $thisTopic =~ s/^\s+//g;
+  $thisTopic =~ s/\s+$//g;
 
   ($thisWeb, $thisTopic) =
     Foswiki::Func::normalizeWebTopicName($thisWeb, $thisTopic);
@@ -326,6 +331,7 @@ sub handleDBQUERY {
   my $theSkip = $params->{skip} || 0;
   my $theHideNull = Foswiki::Func::isTrue($params->{hidenull}, 0);
   my $theRemote = Foswiki::Func::isTrue($params->remove('remote'), 0);
+  my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
 
   $theFormat = '$topic' unless defined $theFormat;
   $theFormat = '' if $theFormat eq 'none';
@@ -368,7 +374,7 @@ sub handleDBQUERY {
     $theSkip = expandFormatTokens($theSkip);
     $theSkip = Foswiki::Func::expandCommonVariables($theSkip, $thisTopic, $thisWeb);
   }
-  $theSkip =~ s/[^-\d]//go;
+  $theSkip =~ s/[^-\d]//g;
   $theSkip = 0 if $theSkip eq '';
   $theSkip = 0 if $theSkip < 0;
 
@@ -378,7 +384,7 @@ sub handleDBQUERY {
     $theLimit = expandFormatTokens($theLimit);
     $theLimit = Foswiki::Func::expandCommonVariables($theLimit, $thisTopic, $thisWeb);
   }
-  $theLimit =~ s/[^\d]//go;
+  $theLimit =~ s/[^\d]//g;
 
   # get webs
   my $hits;
@@ -399,7 +405,9 @@ sub handleDBQUERY {
     $error = shift->stringify();
   };
 
-  return inlineError($error) if $error;
+  if ($error) {
+    return $doWarnings?inlineError($error):"";
+  }
   return "" if $theHideNull && (!$hits || $hits->count <= $theSkip);
 
   # format
@@ -412,6 +420,7 @@ sub handleDBQUERY {
 
       my $topicName = $topicObj->fastget("topic");
       my $web = $topicObj->fastget("web");
+      $web =~ s/\//./g;
       my $theDB = getDB($web);
       unless ($theWeb) {
         print STDERR "ERROR: no such web $theWeb in DBQUERY\n";
@@ -444,7 +453,7 @@ sub handleDBQUERY {
       $line =~ s/\$flatten\((.*?)\)/flatten($1, $web, $thisTopic)/ges;
       $line =~ s/\$rss\((.*?)\)/rss($1, $web, $thisTopic)/ges;
 
-      $line =~ s/${TranslationToken}/)/go;
+      $line =~ s/${TranslationToken}/)/g;
       push @result, $line;
 
       $Foswiki::Plugins::DBCachePlugin::addDependency->($web, $topicName);
@@ -572,6 +581,7 @@ sub handleDBCALL {
   my ($session, $params, $theTopic, $theWeb) = @_;
 
   my $thisTopic = $params->remove('_DEFAULT');
+  my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
   return '' unless $thisTopic;
 
   #writeDebug("called handleDBCALL()");
@@ -582,7 +592,6 @@ sub handleDBCALL {
     $theObject = $1;
     $thisTopic = $2;
   }
-
 
   my $baseWeb = $session->{webName};
   my $baseTopic = $session->{topicName};
@@ -614,25 +623,22 @@ sub handleDBCALL {
   my $args = $params->stringify();
 
   my $section = $params->remove('section') || 'default';
-  my $warn = Foswiki::Func::isTrue($params->remove('warn'), 1);
   my $remote = Foswiki::Func::isTrue($params->remove('remote'), 0);
 
   #writeDebug("thisWeb=$thisWeb thisTopic=$thisTopic baseWeb=$baseWeb baseTopic=$baseTopic");
 
   # get web and topic
   my $thisDB = getDB($thisWeb);
-  return inlineError("ERROR: DBALL can't find web '$thisWeb'") unless $thisDB;
+  unless ($thisDB) {
+    return $doWarnings?inlineError("ERROR: DBALL can't find web '$thisWeb'"):"";
+  }
 
   my $topicObj = $thisDB->fastget($thisTopic);
   unless ($topicObj) {
-    if ($warn) {
-      if ($theObject) {
-        return inlineError("ERROR: DBCALL can't find method <nop>$thisTopic for object $theObject");
-      } else {
-        return inlineError("ERROR: DBCALL can't find topic <nop>$thisTopic in <nop>$thisWeb");
-      }
+    if ($theObject) {
+      return $doWarnings?inlineError("ERROR: DBCALL can't find method <nop>$thisTopic for object $theObject"):"";
     } else {
-      return '';
+      return $doWarnings?inlineError("ERROR: DBCALL can't find topic <nop>$thisTopic in <nop>$thisWeb"):"";
     }
   }
 
@@ -665,20 +671,13 @@ sub handleDBCALL {
   # check access rights
   my $wikiName = Foswiki::Func::getWikiName();
   unless (Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, $thisTopic, $thisWeb)) {
-    if ($warn) {
-      return inlineError("ERROR: DBCALL access to '$thisWeb.$thisTopic' denied");
-    } 
-    return '';
+    return $doWarnings?inlineError("ERROR: DBCALL access to '$thisWeb.$thisTopic' denied"):"";
   }
 
   # get section
   my $sectionText = $topicObj->fastget("_section$section") if $topicObj;
   if (!defined $sectionText) {
-    if($warn) {
-      return inlineError("ERROR: DBCALL can't find section '$section' in topic '$thisWeb.$thisTopic'");
-    } else {
-      return '';
-    }
+    return $doWarnings?inlineError("ERROR: DBCALL can't find section '$section' in topic '$thisWeb.$thisTopic'"):"";
   }
 
   # prevent recursive calls
@@ -686,10 +685,7 @@ sub handleDBCALL {
   my $count = grep($key, keys %{$session->{dbcalls}});
   $key .= $args;
   if ($session->{dbcalls}->{$key} || $count > 99) {
-    if($warn) {
-      return inlineError("ERROR: DBCALL reached max recursion at '$thisWeb.$thisTopic'");
-    }
-    return '';
+    return $doWarnings?inlineError("ERROR: DBCALL reached max recursion at '$thisWeb.$thisTopic'"):"";
   }
   $session->{dbcalls}->{$key} = 1;
 
@@ -718,7 +714,7 @@ sub handleDBCALL {
     %{$session->{SESSION_TAGS}} = %saveTags;
   }
 
-    #writeDebug("done handleDBCALL");
+  #writeDebug("done handleDBCALL");
 
   return $sectionText;
   #return "<verbatim>\n$sectionText\n</verbatim>";
@@ -750,7 +746,7 @@ sub handleDBSTATS {
   my $theExclude = $params->{exclude};
   my $theInclude = $params->{include};
   my $theCase = Foswiki::Func::isTrue($params->{casesensitive}, 0);
-  $theLimit =~ s/[^\d]//go;
+  $theLimit =~ s/[^\d]//g;
 
   $theFormat = '   * $key: $count' unless defined $theFormat;
   $theSep = $params->{sep} unless defined $theSep;
@@ -805,7 +801,7 @@ sub handleDBSTATS {
 	}
       }
       next unless $fieldValue; # unless present
-      $fieldValue = formatTime($fieldValue) if $field =~ /created(ate)?|modified/;
+      $fieldValue = formatTime($fieldValue) if $field =~ /created(ate)?|modified|publishdate/;
       #writeDebug("reading field $field found $fieldValue");
 
       foreach my $item (split(/$theSplit/, $fieldValue)) {
@@ -1075,6 +1071,7 @@ sub handleDBRECURSE {
   my $baseTopic = $session->{topicName};
   my $thisTopic = $params->{_DEFAULT} || $params->{topic} || $baseTopic;
   my $thisWeb = $params->{web} || $baseWeb;
+  my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
 
   ($thisWeb, $thisTopic) = 
     Foswiki::Func::normalizeWebTopicName($thisWeb, $thisTopic);
@@ -1111,7 +1108,9 @@ sub handleDBRECURSE {
 
   # query topics
   my $theDB = getDB($thisWeb);
-  return inlineError("ERROR: DBRECURSE can't find web '$thisWeb'") unless $theDB;
+  unless ($theDB) {
+    return $doWarnings?inlineError("ERROR: DBRECURSE can't find web '$thisWeb'"):"";
+  }
 
   $params->{_count} = 0;
   my $result;
@@ -1123,7 +1122,9 @@ sub handleDBRECURSE {
     $error = shift->stringify();
   };
 
-  return inlineError($error) if $error;
+  if ($error) {
+    return $doWarnings?inlineError($error):"";
+  }
 
   # render result
   return '' if $params->{hidenull} eq 'on' && $params->{_count} == 0;
@@ -1177,6 +1178,7 @@ sub formatRecursive {
   while (my $topicObj = $hits->next) {
     my $topicName = $topicObj->fastget("topic");
     next if $topicName eq $theTopic; # cycle, kind of
+    next if $seen->{$topicName};
 
     $params->{_count}++;
     next if $params->{_count} <= $params->{skip};
@@ -1212,7 +1214,6 @@ sub formatRecursive {
     my $subResult = 
       formatRecursive($theDB, $theWeb, $topicName, $params, $seen, 
         $depth+1, $numberString);
-    
 
     if ($subResult && @$subResult) {
       push @result, 
@@ -1243,7 +1244,7 @@ sub formatRecursive {
 sub getWebKey {
   my $web = shift;
 
-  $web =~ s/\./\//go;
+  $web =~ s/\./\//g;
 
   unless (defined $webKeys{$web}) {
     return unless Foswiki::Sandbox::validateWebName($web, 1);
@@ -1292,8 +1293,8 @@ sub newDB {
 
   my $impl = Foswiki::Func::getPreferencesValue('WEBDB', $web)
       || 'Foswiki::Plugins::DBCachePlugin::WebDB';
-  $impl =~ s/^\s+//go;
-  $impl =~ s/\s+$//go;
+  $impl =~ s/^\s+//g;
+  $impl =~ s/\s+$//g;
 
   #writeDebug("loading new webdb for '$web'");
   return new $impl($web);
@@ -1328,9 +1329,9 @@ sub fixInclude {
   $_[0] = takeOutBlocks($_[0], 'noautolink', $removed);
 
   # 'TopicName' to 'Web.TopicName'
-  $_[0] =~ s/(^|[\s(])($webNameRegex\.$wikiWordRegex)/$1$TranslationToken$2/go;
-  $_[0] =~ s/(^|[\s(])($wikiWordRegex)/$1\[\[$thisWeb\.$2\]\[$2\]\]/go;
-  $_[0] =~ s/(^|[\s(])$TranslationToken/$1/go;
+  $_[0] =~ s/(^|[\s(])($webNameRegex\.$wikiWordRegex)/$1$TranslationToken$2/g;
+  $_[0] =~ s/(^|[\s(])($wikiWordRegex)/$1\[\[$thisWeb\.$2\]\[$2\]\]/g;
+  $_[0] =~ s/(^|[\s(])$TranslationToken/$1/g;
 
   putBackBlocks( \$_[0], $removed, 'noautolink');
 }
@@ -1360,14 +1361,14 @@ sub expandFormatTokens {
 
   return '' unless defined $text;
 
-  $text =~ s/\$perce?nt/\%/go;
+  $text =~ s/\$perce?nt/\%/g;
   $text =~ s/\$nop//g;
-  $text =~ s/\$n/\n/go;
+  $text =~ s/\$n/\n/g;
   $text =~ s/\$encode\((.*?)\)/entityEncode($1)/ges;
   $text =~ s/\$trunc\((.*?),\s*(\d+)\)/substr($1,0,$2)/ges;
   $text =~ s/\$lc\((.*?)\)/lc($1)/ge;
   $text =~ s/\$uc\((.*?)\)/uc($1)/ge;
-  $text =~ s/\$dollar/\$/go;
+  $text =~ s/\$dollar/\$/g;
 
   return $text;
 }
@@ -1425,10 +1426,10 @@ sub rss {
 
   $text = "\n<noautolink>\n$text\n</noautolink>\n";
   $text = Foswiki::Func::renderText($text);
-  $text =~ s/\b(onmouseover|onmouseout|style)=".*?"//go; # TODO filter out more not validating attributes
-  $text =~ s/<nop>//go;
-  $text =~ s/[\n\r]+/ /go;
-  $text =~ s/\n*<\/?noautolink>\n*//go;
+  $text =~ s/\b(onmouseover|onmouseout|style)=".*?"//g; # TODO filter out more not validating attributes
+  $text =~ s/<nop>//g;
+  $text =~ s/[\n\r]+/ /g;
+  $text =~ s/\n*<\/?noautolink>\n*//g;
   $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>@[_\|])/'&#'.ord($1).';'/ge;
   $text =~ s/^\s*(.*?)\s*$/$1/gos;
 
@@ -1456,7 +1457,7 @@ sub entityDecode {
 sub quoteEncode {
   my $text = shift;
 
-  $text =~ s/\"/\\"/go;
+  $text =~ s/\"/\\"/g;
 
   return $text;
 }
@@ -1489,7 +1490,7 @@ sub flatten {
   my $topicObject = Foswiki::Meta->new($session, $web, $topic);
   $text = $session->renderer->TML2PlainText($text, $topicObject);
 
-  $text =~ s/(https?)/<nop>$1/go;
+  $text =~ s/(https?)/<nop>$1/g;
   $text =~ s/[\r\n\|]+/ /gm;
   $text =~ s/!!//g;
   return $text;
@@ -1511,11 +1512,11 @@ sub OLDflatten {
   $text =~ s/\&[a-z]+;/ /g;
   $text =~ s/\&#[0-9]+;/ /g;
   $text =~ s/[\r\n\|]+/ /gm;
-  $text =~ s/\[\[//go;
-  $text =~ s/\]\]//go;
-  $text =~ s/\]\[//go;
+  $text =~ s/\[\[//g;
+  $text =~ s/\]\]//g;
+  $text =~ s/\]\[//g;
   $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>@[_\|])/'&#'.ord($1).';'/ge;
-  $text =~ s/(https?)/<nop>$1/go;
+  $text =~ s/(https?)/<nop>$1/g;
   $text =~ s/\b($wikiWordRegex)\b/<nop>$1/g;
   $text =~ s/^\s+//;
 

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2015 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2016 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -93,7 +93,10 @@ sub add {
         push @crits, $item;
       }
 
-      $this->{_sortPropOfTopic}{$key} = $this->_expandPath($obj, join(" and ", @crits)) || '';
+      my $path = join(" and ", @crits);
+      $this->{_sortPropOfTopic}{$key} = $this->_expandPath($obj, $path) || '';
+
+      #print STDERR "key=$key, path=$path, sortProp=".$this->{_sortPropOfTopic}{$key}."\n";
 
       $this->{_isNumerical} = 0 
         if $this->{_isNumerical} && $this->{_sortPropOfTopic}{$key} && !($this->{_sortPropOfTopic}{$key} =~ /^[+-]?\d+(\.\d+)?$/);
@@ -133,10 +136,10 @@ sub init {
       if ($this->{sorting} ne 'off') {
         if ($this->{_isNumerical}) {
           @keys =
-            sort { ($props->{$a} || 0) <=> ($props->{$b} || 0) } @keys;
+            sort { ($props->{$a} || 0) <=> ($props->{$b} || 0) || $a cmp $b} @keys;
         } else {
           @keys =
-            sort { $props->{$a} cmp $props->{$b} } @keys;
+            sort { $props->{$a} cmp $props->{$b} || $a cmp $b} @keys;
         }
       }
       @keys = reverse @keys if $this->{reverse};

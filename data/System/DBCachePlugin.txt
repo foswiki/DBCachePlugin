@@ -1,7 +1,6 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1437149467" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1457452328" format="1.1" version="1"}%
 ---+!! <nop>%TOPIC%
-%SHORTDESCRIPTION%
-
+%FORMFIELD{"Description"}%
 
 %TOC%
 
@@ -104,6 +103,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 | =sort="..."= | specifies the sorting of hits; this can be a comma separted list of attributes to specify more complicated sortings; special value "random"; defaults to "name" |
 | =reverse="..."= | specify if hits should be sorted in reverse order; defaults to "off" |
 | =limit="..."= | maximum number of topics to include in the hit set |
+| =warn="on,off"= | enable/suppress error warnings |
 | =skip="..."= | number of topics to skip while constructing the hit set; defaults to "0" |
 | =hidenull="..."= | flag to indicate that an empty hit set should not be displayed |
 | =remote="on,off"= | switch fixing !WikiWords in transcluded content; \
@@ -176,6 +176,7 @@ Traverse topic-to-topic relations, like the intrinsic parent-child relation
 | =sort="..."= | determines the sorting order of topics in each iteration step |
 | =reverse="on,off"= | reverse sorting order |
 | =limit="..."= | maximum iterations, default is =0= (unlimited) |
+| =warn="on,off"= | enable/suppress error warnings |
 | =skip="..."= | skips the first =n= hits when formatting the output, defaults to =0= (no skip) |
 | =depth="..."= | only recurse to a given depth, defaults to =0= (unlimited) |
 | =include="..."= | regular expression topics must match to be included in the search; can also be a comma separated list of topics |
@@ -293,6 +294,7 @@ reference the "neigbour" documetns of an item found in a search query
 | =format="..."= | format string to render the results (default: "$web.$topic") |
 | =order= | define a sorting on the hit set; see above |
 | =reverse="on,off"= | sort keys descending or ascending |
+| =warn="on,off"= | enable/suppress error warnings |
 
 Results are rendered using the =format= parameter which understands the normal format tokens
 like =$dollar=, =$percnt=, =$nop= and =$n= as well as =$web= and =$topic= which refer to
@@ -451,6 +453,11 @@ automatically from there on.
 
 ---++ Change History
 
+%TABLE{columnwidths="7em" tablewidth="100%"}%
+|  08 Mar 2016: | fixed use of uninitialized variable in sorting code; \
+                  add support for Inheritance field in Foswiki:Extensions/WikiWorkbenchContrib;\
+                  added =warn= parameter to all macros to switch off warnings optionally; \
+                  bail out of recursions earlier when walking in circles |
 |  25 Sep 2015: | fixed creation of web pattern based on webs param to DBQUERY |
 |  09 Sep 2015: | new perl api to register index handlers; \
                   moved indexing meta comments to Foswiki:Extensions/MetaCommentPlugin;\
@@ -585,17 +592,13 @@ automatically from there on.
                   support for STARTSECTION, old SECTION being deprecated |
 |  24 Nov 2005: | Initial version |
 
-<!-- 
-   * Set SHORTDESCRIPTION = %$SHORTDESCRIPTION%
--->
-
-
 %META:FORM{name="PackageForm"}%
 %META:FIELD{name="Author" title="Author" value="Michael Daum"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2015, Michael Daum http://michaeldaumconsulting.com"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2016, Michael Daum http://michaeldaumconsulting.com"}%
+%META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
+%META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%TOPIC%"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Release" title="Release" value="%$RELEASE%"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/DBCachePlugin"}%
-%META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%TOPIC%"}%
 %META:FIELD{name="Support" title="Support" value="Foswiki:Support/%TOPIC%"}%
 %META:FIELD{name="Version" title="Version" value="%$VERSION%"}%

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2015 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2016 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -26,6 +26,8 @@ use Foswiki::Plugins::DBCachePlugin ();
 use Foswiki::Plugins::DBCachePlugin::Hits ();
 use Foswiki::Attrs ();
 use Foswiki::Time ();
+use Foswiki::Plugins ();
+use Foswiki::Form ();
 
 use constant TRACE => 0; # toggle me
 
@@ -37,7 +39,7 @@ sub new {
 
   $cacheName = 'DBCachePluginDB' unless $cacheName;
 
-  writeDebug("new WebDB for $web");
+  #writeDebug("new WebDB for $web");
 
   my $this = bless($class->SUPER::new($web, $cacheName), $class);
   #$this->{_loadTime} = 0;
@@ -133,49 +135,21 @@ sub onReload {
     $obj->set('_sections', join(", ", @sections));
 
     # get topic title
+    my $form = $obj->fastget('form');
+    $form = $obj->fastget($form) if $form;
 
     # 1. get from preferences
     my $topicTitle = $this->getPreference($obj, 'TOPICTITLE');
 
     # 2. get from form
-    unless (defined $topicTitle && $topicTitle ne '') {
-      my $form = $obj->fastget('form');
-      if ($form) {
-
-        #print STDERR "trying form\n";
-        $form = $obj->fastget($form);
-        $topicTitle = $form->fastget($topicTitleField) || '';
-        $topicTitle = urlDecode($topicTitle);
-      }
+    if ($form && (!defined $topicTitle || $topicTitle eq '')) {
+      #print STDERR "trying form\n";
+      $topicTitle = $form->fastget($topicTitleField) || '';
+      $topicTitle = urlDecode($topicTitle);
     }
-
-    # 3. get from h1
-    #    unless (defined $topicTitle) {
-    #      #print STDERR "trying h1\n";
-    #      #print STDERR "origText=\n$origText\n";
-    #      if ($origText =~ /(?:^|\n)(?:(?:---+\+(?!\+)(?:!!)?\s*(.*?)\s*)|(?:<h1[^>]*>\s*(.*?)\s*<\/h1>))(?:\n|$)/o) {
-    #        #print STDERR "found in heading\n";
-    #        $topicTitle = $1 || $2;
-    #        if ($topicTitle =~ /\%TOPICTITLE({.*})?\%/o ||
-    #            $topicTitle =~ /\%WIKI(USER)NAME\%/o ||
-    #            $topicTitle =~ /\%USERINFO({.*})?\%/o) {
-    #          $topicTitle = undef; # not this time
-    #        }
-    #
-    #        # strip some
-    #        if (defined $topicTitle) {
-    #          $topicTitle =~ s/\%TOPIC\%/$topic/g;
-    #          $topicTitle =~ s/\[\[.*\]\[(.*)\]\]/$1/go;
-    #          $topicTitle =~ s/\[\[(.*)\]\]/$1/go;
-    #          $topicTitle =~ s/<a[^>]*>(.*)<\/a>/$1/go;
-    #          $topicTitle = Foswiki::Func::expandCommonVariables($topicTitle, $topic, $this->{web});
-    #        }
-    #      }
-    #    }
 
     # 4. use topic name
     unless ($topicTitle) {
-
       #print STDERR "defaulting to topic name\n";
       if ($topic eq 'WebHome') {
         $topicTitle = $this->{web};
@@ -187,6 +161,20 @@ sub onReload {
 
     #print STDERR "found topictitle=$topicTitle\n" if $topicTitle;
     $obj->set('topictitle', $topicTitle);
+
+    # This is to maintain the Inheritance formfield for the WikiWorkbenchContrib
+    if ($form) {
+      my $topicType = $form->fastget("TopicType");
+      if ($topicType && $topicType =~ /\bTopicType\b/) {
+        my $session = $Foswiki::Plugins::SESSION;
+        my $metaForm = Foswiki::Form->new($session, $this->{web}, $topic);
+        my $field = $metaForm->getField("TopicType");
+        if ($field) {
+          my $inheritance = join(", ", sort grep {!/^$topic$/} split(/\s*,\s*/, $field->{value}));
+          $form->set("Inheritance", $inheritance);
+        }
+      }
+    }
 
     # call index topic handlers
     my %seen;
