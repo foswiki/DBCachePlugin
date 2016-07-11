@@ -414,6 +414,8 @@ sub handleDBQUERY {
   my @result = ();
   if ($theFormat && $hits) {
     my $index = $hits->skip($theSkip);
+    my $lastWeb = '';
+    my $theDB;
     while (my $topicObj = $hits->next) {
       #writeDebug("topicName=$topicName");
       $index++;
@@ -421,7 +423,8 @@ sub handleDBQUERY {
       my $topicName = $topicObj->fastget("topic");
       my $web = $topicObj->fastget("web");
       $web =~ s/\//./g;
-      my $theDB = getDB($web);
+      $theDB = getDB($web) if !$theDB || $lastWeb ne $web;
+      $lastWeb = $web;
       unless ($theWeb) {
         print STDERR "ERROR: no such web $theWeb in DBQUERY\n";
         next;

@@ -1,8 +1,9 @@
 *.swp
-DBCachePlugin.md5
-DBCachePlugin.sha1
-DBCachePlugin.tgz
-DBCachePlugin.txt
-DBCachePlugin.zip
-DBCachePlugin_installer
-DBCachePlugin_installer.pl
+*,v
+/DBCachePlugin.md5
+/DBCachePlugin.sha1
+/DBCachePlugin.tgz
+/DBCachePlugin.txt
+/DBCachePlugin.zip
+/DBCachePlugin_installer
+/DBCachePlugin_installer.pl

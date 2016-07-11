@@ -97,7 +97,7 @@ sub onReload {
 
     # get meta object
     my ($meta, $text) = Foswiki::Func::readTopic($this->{web}, $topic);
-    my $origText = $text;
+    $this->cleanUpText($text);
 
     # SMELL: call getRevisionInfo to make sure the latest revision is loaded
     # for get('TOPICINFO') further down the code

@@ -454,6 +454,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  11 Jul 2016: | make use of clean-up feature of latest <nop>DBCacheContrib; performance improvements |
 |  08 Mar 2016: | fixed use of uninitialized variable in sorting code; \
                   add support for Inheritance field in Foswiki:Extensions/WikiWorkbenchContrib;\
                   added =warn= parameter to all macros to switch off warnings optionally; \
