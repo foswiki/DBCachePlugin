@@ -333,7 +333,7 @@ A search query is a boolean expression on fields of a topic. (Tip: use %DBDUMP t
    * Find all FAQs
      <verbatim>%DBQUERY{"topic =~ 'FAQ'"}%</verbatim>
    * Find all topics that have the word "random" in it (case-insensitive) excluding the current topic
-     <verbatim>%DBQUERY{"lc(text) =~ 'random' and topic != 'DBCachePlugin'"}%</verbatim>
+     <verbatim>%DBQUERY{"lc(text) =~ 'random' AND topic != 'DBCachePlugin'"}%</verbatim>
 
 ---++ Perl API
 
@@ -454,6 +454,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  16 Jan 2017: | oo-ify core and other code cleanup |
 |  11 Jul 2016: | make use of clean-up feature of latest <nop>DBCacheContrib; performance improvements |
 |  08 Mar 2016: | fixed use of uninitialized variable in sorting code; \
                   add support for Inheritance field in Foswiki:Extensions/WikiWorkbenchContrib;\
@@ -595,7 +596,7 @@ automatically from there on.
 
 %META:FORM{name="PackageForm"}%
 %META:FIELD{name="Author" title="Author" value="Michael Daum"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2016, Michael Daum http://michaeldaumconsulting.com"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2017, Michael Daum http://michaeldaumconsulting.com"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%TOPIC%"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%

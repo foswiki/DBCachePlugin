@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2016 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2017 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -400,7 +400,7 @@ sub expandPath {
       $root = $result;
     } else {
       if ($result =~ /^(.*)\.(.*?)$/) {
-        my $db = Foswiki::Plugins::DBCachePlugin::Core::getDB($1);
+        my $db = Foswiki::Plugins::DBCachePlugin::getDB($1);
         return '' unless defined $db;
         $root = $db->fastget($2);
         return $db->expandPath($root, $tail);

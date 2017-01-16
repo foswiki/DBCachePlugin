@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2016 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2017 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -25,12 +25,12 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '9.30';
-our $RELEASE = '11 Mar 2016';
+our $VERSION = '10.00';
+our $RELEASE = '16 Jan 2017';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
 
-our $isInitialized;
+our $core;
 our $addDependency;
 our $isEnabledSaveHandler;
 our $isEnabledRenameHandler;
@@ -40,49 +40,42 @@ our @knownIndexTopicHandler = ();
 # plugin initializer
 sub initPlugin {
 
+  $core = undef;
+
   Foswiki::Func::registerTagHandler('DBQUERY', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleDBQUERY(@_);
+    return getCore()->handleDBQUERY(@_);
   });
 
   Foswiki::Func::registerTagHandler('DBCALL', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleDBCALL(@_);
+    return getCore()->handleDBCALL(@_);
   });
 
   Foswiki::Func::registerTagHandler('DBSTATS', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleDBSTATS(@_);
+    return getCore()->handleDBSTATS(@_);
   });
 
   Foswiki::Func::registerTagHandler('DBDUMP', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleDBDUMP(@_);
+    return getCore()->handleDBDUMP(@_);
   });
 
   Foswiki::Func::registerTagHandler('DBRECURSE', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleDBRECURSE(@_);
+    return getCore()->handleDBRECURSE(@_);
   });
 
   Foswiki::Func::registerTagHandler('DBPREV', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleNeighbours(1, @_);
+    return getCore()->handleNeighbours(1, @_);
   });
 
   Foswiki::Func::registerTagHandler('DBNEXT', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleNeighbours(0, @_);
+    return getCore()->handleNeighbours(0, @_);
   });
 
   Foswiki::Func::registerTagHandler('TOPICTITLE', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleTOPICTITLE(@_);
+    return getCore()->handleTOPICTITLE(@_);
   });
 
   Foswiki::Func::registerTagHandler('GETTOPICTITLE', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::handleTOPICTITLE(@_);
+    return getCore()->handleTOPICTITLE(@_);
   });
 
   Foswiki::Func::registerRESTHandler('updateCache', \&restUpdateCache, 
@@ -92,8 +85,7 @@ sub initPlugin {
   );
 
   Foswiki::Func::registerRESTHandler('dbdump', sub {
-    initCore();
-    return Foswiki::Plugins::DBCachePlugin::Core::restDBDUMP(@_);
+    return getCore()->Foswiki::Plugins::DBCachePlugin::Core::restDBDUMP(@_);
   }, 
     authenticate => 1,
     validate => 0,
@@ -109,7 +101,6 @@ sub initPlugin {
     $addDependency = \&nullHandler;
   }
 
-  $isInitialized = 0;
   $isEnabledSaveHandler = 1;
   $isEnabledRenameHandler = 1;
 
@@ -121,17 +112,20 @@ sub finishPlugin {
 
   my $session = $Foswiki::Plugins::SESSION;
   @knownIndexTopicHandler = ();
-  delete $session->{dbcalls};
+
+  #$core->finish if defined $core;
+  $core = undef;
 }
 
 ###############################################################################
-sub initCore {
-  return if $isInitialized;
-  $isInitialized = 1;
-
-  require Foswiki::Plugins::DBCachePlugin::Core;
-  Foswiki::Plugins::DBCachePlugin::Core::init();
+sub getCore {
+  unless (defined $core) {
+    require Foswiki::Plugins::DBCachePlugin::Core;
+    $core = Foswiki::Plugins::DBCachePlugin::Core->new();
+  }
+  return $core;
 }
+
 
 ###############################################################################
 # REST handler to create and update the dbcache
@@ -178,8 +172,7 @@ sub enableRenameHandler {
 
 ###############################################################################
 sub loadTopic {
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::loadTopic(@_);
+  return getCore()->loadTopic(@_);
 }
 
 ###############################################################################
@@ -205,8 +198,7 @@ sub afterSaveHandler {
     return;
   }
 
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::afterSaveHandler($_[2], $_[1]);
+  return getCore()->afterSaveHandler($_[2], $_[1]);
 }
 
 ###############################################################################
@@ -218,8 +210,7 @@ sub afterAttachmentSaveHandler {
   return if $Foswiki::Plugins::VERSION >= 2.1 || 
     $Foswiki::cfg{DBCachePlugin}{UseUploadHandler}; # set this to true if you backported the afterUploadHandler
 
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::afterSaveHandler($_[2], $_[1]);
+  return getCore()->afterSaveHandler($_[2], $_[1]);
 }
 
 ###############################################################################
@@ -230,8 +221,7 @@ sub afterUploadHandler {
   my ($attrHashRef, $meta) = @_;
   my $web = $meta->web;
   my $topic = $meta->topic;
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::afterSaveHandler($web, $topic);
+  return getCore()->afterSaveHandler($web, $topic);
 }
 
 ###############################################################################
@@ -241,14 +231,12 @@ sub afterRenameHandler {
 
   my ($web, $topic, $attachment, $newWeb, $newTopic, $newAttachment) = @_;
 
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::afterSaveHandler($web, $topic, $newWeb, $newTopic, $attachment, $newAttachment);
+  return getCore()->afterSaveHandler($web, $topic, $newWeb, $newTopic, $attachment, $newAttachment);
 }
 
 ###############################################################################
 sub renderWikiWordHandler {
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::renderWikiWordHandler(@_);
+  return getCore()->renderWikiWordHandler(@_);
 }
 
 ###############################################################################
@@ -257,18 +245,15 @@ sub renderWikiWordHandler {
 ###############################################################################
 # perl api
 sub getDB {
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::getDB(@_);
+  return getCore()->getDB(@_);
 }
 
 sub unloadDB {
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::unloadDB(@_);
+  return getCore()->unloadDB(@_);
 }
 
 sub getTopicTitle {
-  initCore();
-  return Foswiki::Plugins::DBCachePlugin::Core::getTopicTitle(@_);
+  return getCore()->getTopicTitle(@_);
 }
 
 sub registerIndexTopicHandler {
