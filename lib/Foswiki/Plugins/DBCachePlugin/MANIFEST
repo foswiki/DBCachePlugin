@@ -1,3 +1,4 @@
+!noci
 data/System/DBCachePlugin.txt 0644
 lib/Foswiki/Plugins/DBCachePlugin/Config.spec 0644
 lib/Foswiki/Plugins/DBCachePlugin/Core.pm 0644

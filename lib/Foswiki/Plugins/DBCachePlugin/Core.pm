@@ -47,6 +47,7 @@ sub new {
       tagNameRegex => Foswiki::Func::getRegularExpression('tagNameRegex'),
       webKeys => undef,
       currentWeb => undef,
+      isModifiedDB => undef,
       @_
     },
     $class
@@ -179,14 +180,13 @@ sub afterSaveHandler {
 
   # move/rename 
   if ($newWeb eq $web) {
-
     if ($topic ne $newTopic) {
-      $db->loadTopic($web, $newTopic)
+      # handled by afterSaveHandler
+      #$db->loadTopic($web, $newTopic) 
     }
   } else { # crossing webs
     $db = $this->getDB($newWeb); 
     unless ($db) {
-      print STDERR "WARNING: DBCachePlugin can't get cache for web '$newWeb'\n";
       return;
     }
     $db->loadTopic($newWeb, $topic);
@@ -357,8 +357,7 @@ sub handleDBQUERY {
     if ($theWebs eq 'all') {
       @webs = Foswiki::Func::getListOfWebs();
     } else {
-      my $webPattern = '^('.join("|", split(/\s*,\s*/, $theWebs)).')$';
-      @webs = grep {/$webPattern/} Foswiki::Func::getListOfWebs();
+      @webs = split(/\s*,\s*/, $theWebs);
     }
   } else {
     push @webs, $thisWeb;
@@ -468,7 +467,7 @@ sub handleDBQUERY {
   $text = _expandVariables($text, $thisWeb, $thisTopic, count=>($hits?$hits->count:0), web=>$thisWeb);
   $text = _expandFormatTokens($text);
 
-  $this->fixInclude($session, $thisWeb, $text) if $theRemote;
+  $this->fixInclude($thisWeb, $text) if $theRemote;
 
   return $text;
 }
@@ -704,7 +703,7 @@ sub handleDBCALL {
   delete $context->{insideInclude};
 
   # fix local linx
-  $this->fixInclude($session, $thisWeb, $sectionText) if $remote;
+  $this->fixInclude($thisWeb, $sectionText) if $remote;
 
   # cleanup
   delete $this->{dbcalls}{$key};
@@ -733,6 +732,7 @@ sub handleDBSTATS {
   my $theSearch = $params->{_DEFAULT} || $params->{search} || '';
   my $thisWeb = $params->{web} || $baseWeb;
   my $thisTopic = $params->{topic} || $baseTopic;
+  my $thisTopics = $params->{topics};
   my $thePattern = $params->{pattern} || '^(.*)$';
   my $theSplit = $params->{split} || '\s*,\s*';
   my $theHeader = $params->{header} || '';
@@ -782,16 +782,22 @@ sub handleDBSTATS {
   my $theDB = $this->getDB($thisWeb);
   return _inlineError("ERROR: DBSTATS can't find web '$thisWeb'") unless $theDB;
 
-  my @topicNames = $theDB->getKeys();
+  my @topicNames;
+  if ($thisTopics) {
+    @topicNames = split(/\s*,\s*/, $thisTopics);
+  } else {
+    @topicNames = $theDB->getKeys();
+  }
   foreach my $topicName (@topicNames) { # loop over all topics
     my $topicObj = $theDB->fastget($topicName);
+    next unless $topicObj;
     next if $search && !$search->matches($topicObj); # that match the query
     next unless $theDB->checkAccessPermission('VIEW', $wikiName, $topicObj);
 
     #_writeDebug("found topic $topicName");
     my $createDate = $topicObj->fastget('createdate');
     my $modified = $topicObj->get('info.date');
-    my $publishDate = $topicObj->get('publishdate');
+    my $publishDate = $topicObj->get('publishdate') || 0;
     foreach my $field (split(/\s*,\s*/, $theFields)) { # loop over all fields
       my $fieldValue = $topicObj->fastget($field);
       if (!$fieldValue || ref($fieldValue)) {
@@ -827,8 +833,8 @@ sub handleDBSTATS {
             $record->{createdate_to} = $createDate if $record->{createdate_to} < $createDate;
             $record->{modified_from} = $modified if $record->{modified_from} > $modified;
             $record->{modified_to} = $modified if $record->{modified_to} < $modified;
-            $record->{publishdate_from} = $publishDate if $record->{publishdate_from} > $publishDate;
-            $record->{publishdate_to} = $publishDate if $record->{publishdate_to} < $publishDate;
+            $record->{publishdate_from} = $publishDate if defined $publishDate && $record->{publishdate_from} > $publishDate;
+            $record->{publishdate_to} = $publishDate if defined $publishDate && $record->{publishdate_to} < $publishDate;
             push @{$record->{topics}}, $topicName;
           } else {
             my %record = (
@@ -891,7 +897,10 @@ sub handleDBSTATS {
     } keys %statistics
   } elsif ($theSort eq 'count') {
     @sortedKeys = sort {
-      $statistics{$a}->{count} <=> $statistics{$b}->{count}
+      $statistics{$a}->{count} <=> $statistics{$b}->{count} or
+      $statistics{$b}->{modified_from} <=> $statistics{$a}->{modified_from} or  # just to break ties
+      $statistics{$b}->{modified_to} <=> $statistics{$a}->{modified_to} or 
+      $a cmp $b
     } keys %statistics
   } else {
     @sortedKeys = sort keys %statistics;
@@ -923,6 +932,8 @@ sub handleDBSTATS {
 
     last if $theLimit && $index == $theLimit;
   }
+
+  return "" unless @result;
 
   my $text = _expandVariables($theHeader.join($theSep, @result).$theFooter, $thisWeb, $thisTopic,
     'min'=>$min,
@@ -1000,9 +1011,9 @@ sub handleDBRECURSE {
   ($thisWeb, $thisTopic) = 
     Foswiki::Func::normalizeWebTopicName($thisWeb, $thisTopic);
 
-  $params->{format} ||= '   $indent* [[$web.$topic][$topic]]';
+  $params->{format} //= '   $indent* [[$web.$topic][$topic]]';
   $params->{single} ||= $params->{format};
-  $params->{separator} ||= $params->{sep} || "\n";
+  $params->{separator} //= $params->{sep} // "\n";
   $params->{header} ||= '';
   $params->{subheader} ||= '';
   $params->{singleheader} ||= $params->{header};
@@ -1068,8 +1079,7 @@ sub formatRecursive {
   my ($this, $theDB, $theWeb, $theTopic, $params, $seen, $depth, $number) = @_;
 
   # protection agains infinite recursion
-  my %thisSeen;
-  $seen ||= \%thisSeen;
+  $seen ||= {};
   return if $seen->{$theTopic};
   $seen->{$theTopic} = 1;
   $depth ||= 0;
@@ -1194,8 +1204,17 @@ sub getDB {
   #_writeDebug("webKey=$webKey");
 
   my $db = $webDB{$webKey};
-  my $isModified = 1;
-  $isModified = $db->getArchivist->isModified() if $db;
+  my $isModified;
+
+  if ($db) {
+    $isModified = $this->{isModifiedDB}{$webKey};
+    unless (defined $isModified) {
+      $isModified = $db->getArchivist->isModified();
+      $this->{isModifiedDB}{$webKey} = 0 unless $isModified; # only cache a negative result
+    }
+  } else {
+    $isModified = 1;
+  }
 
   if ($isModified) {
     $db = $webDB{$webKey} = $this->newDB($theWeb);
@@ -1206,6 +1225,7 @@ sub getDB {
     my $baseWeb = $Foswiki::Plugins::SESSION->{webName};
     my $baseTopic = $Foswiki::Plugins::SESSION->{topicName};
     $db->load($refresh, $baseWeb, $baseTopic);
+    $this->{doRefresh} = 0;
   }
 
   return $db;
@@ -1232,13 +1252,22 @@ sub unloadDB {
 
   delete $webDB{$web};
   delete $this->{webKeys}{$web};
+  delete $this->{isModifiedDB}{$web};
+}
+
+###############################################################################
+sub finish {
+  my $this = shift;
+
+  undef $this->{isModifiedDB};
+  undef $this->{dbcalls};
+  undef $this->{currentWeb};
 }
 
 ###############################################################################
 # from Foswiki::_INCLUDE
 sub fixInclude {
   my $this = shift;
-  my $session = shift;
   my $thisWeb = shift;
   # $text next
 
@@ -1253,7 +1282,7 @@ sub fixInclude {
   $_[0] = _takeOutBlocks($_[0], 'noautolink', $removed);
 
   # 'TopicName' to 'Web.TopicName'
-  $_[0] =~ s/(^|[\s(])($this->{webNameRegex}\.$$this->{wikiWordRegex})/$1$TranslationToken$2/g;
+  $_[0] =~ s/(^|[\s(])($this->{webNameRegex}\.$this->{wikiWordRegex})/$1$TranslationToken$2/g;
   $_[0] =~ s/(^|[\s(])($this->{wikiWordRegex})/$1\[\[$thisWeb\.$2\]\[$2\]\]/g;
   $_[0] =~ s/(^|[\s(])$TranslationToken/$1/g;
 
@@ -1346,7 +1375,7 @@ sub _dbDumpArray {
   foreach my $obj (sort $array->getValues()) {
     $result .= "<tr><th>";
     if (UNIVERSAL::can($obj, "fastget")) {
-      $result .= $obj->fastget('name');
+      $result .= ($obj->fastget('name') || '');
     } else {
       $result .= $index;
     }

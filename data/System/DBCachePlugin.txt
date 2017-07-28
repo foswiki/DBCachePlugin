@@ -394,7 +394,7 @@ The DBQUERY functionality can be access from within perl using the plugins =dbQu
 | =topics= | restrict search to this list of topics |
 | =order= | define a sorting on the hit set; this can be any formfield accessor or \
   one of the shortcuts "created" (for createdate) or "modified" (for info.date) provided  \
-  for compatibility with default %SEARCH |
+  for compatibility with default %SEARCH, or "random" |
 | =reverse=on,off= | revert the sorting order |
 | =include= | pattern that topic names must match to be considered a hit |
 | =exclude= | pattern that topic names must _not_ match to be considered a hit |
@@ -454,6 +454,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  28 Jul 2017: | fixed restricted search; added random sorting of search results; performance improvements re-loading cache files; fixed "Can't use string as a HASH ref"; added =length()= function to formating | 
 |  16 Jan 2017: | oo-ify core and other code cleanup |
 |  11 Jul 2016: | make use of clean-up feature of latest <nop>DBCacheContrib; performance improvements |
 |  08 Mar 2016: | fixed use of uninitialized variable in sorting code; \

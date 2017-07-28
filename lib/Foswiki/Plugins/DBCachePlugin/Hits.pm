@@ -30,10 +30,12 @@ sub new {
   my $class = shift;
 
   my $this = bless({
-    sorting => "",
-    reverse => 0,
-    @_
-  }, $class);
+      sorting => "off",
+      reverse => 0,
+      @_
+    },
+    $class
+  );
 
   $this->{reverse} = Foswiki::Func::isTrue($this->{reverse});
 
@@ -52,55 +54,58 @@ sub add {
   my ($this, $topic, $obj) = @_;
 
   my $web = $obj->fastget("web");
-  my $key = $web.".".$topic;
+  my $key = $web . "." . $topic;
   $this->{_objects}{$key} = $obj;
-        
-  if ($this->{sorting} && $this->{sorting} ne 'off') {
-    # sort by name
-    if ($this->{sorting} =~ /^(on|name)$/) {
-      $this->{_sortPropOfTopic}{$key} = $topic;
-      $this->{_isNumerical} = 0;
-    } 
 
-    # sort by create date
-    elsif ($this->{sorting} =~ /^created/) {
-      $this->{_sortPropOfTopic}{$key} = $obj->fastget('createdate');
-    } 
+  # sort by name
+  if ($this->{sorting} =~ /^(on|name)$/) {
+    $this->{_sortPropOfTopic}{$key} = $topic;
+    $this->{_isNumerical} = 0;
+  }
 
-    # sort by date
-    elsif ($this->{sorting} =~ /^(modified|info\.date)/) {
-      my $info = $obj->fastget('info');
-      $this->{_sortPropOfTopic}{$key} = $info ? $info->fastget('date') : 0;
-    } 
+  # sort by create date
+  elsif ($this->{sorting} =~ /^created/) {
+    $this->{_sortPropOfTopic}{$key} = $obj->fastget('createdate');
+  }
 
-    # sort randomly
-    elsif ($this->{sorting} =~ /^rand(om)?$/) {
-       $this->{_sortPropOfTopic}{$key} = rand();
-    } 
+  # sort by date
+  elsif ($this->{sorting} =~ /^(modified|info\.date)/) {
+    my $info = $obj->fastget('info');
+    $this->{_sortPropOfTopic}{$key} = $info ? $info->fastget('date') : 0;
+  }
 
-    # sort by property
-    elsif ($this->{sorting} ne 'off') {
-      my $format = $this->{sorting};
-      $format =~ s/\$web/$web/g;
-      $format =~ s/\$topic/$topic/g;
-      $format =~ s/\$perce?nt/\%/go;
-      $format =~ s/\$nop//go;
-      $format =~ s/\$n/\n/go;
-      $format =~ s/\$dollar/\$/go;
+  # sort randomly
+  elsif ($this->{sorting} =~ /^rand(om)?$/) {
+    $this->{_sortPropOfTopic}{$key} = rand();
+  }
 
-      my @crits = ();
-      foreach my $item (split(/\s*,\s*/, $format)) {
-        push @crits, $item;
-      }
+  # sort by time added
+  elsif ($this->{sorting} =~ /^off$/i) {
+    $this->{_sortPropOfTopic}{$key} = $this->{_count};
+  }
 
-      my $path = join(" and ", @crits);
-      $this->{_sortPropOfTopic}{$key} = $this->_expandPath($obj, $path) || '';
+  # sort by property
+  else {
+    my $format = $this->{sorting};
+    $format =~ s/\$web/$web/g;
+    $format =~ s/\$topic/$topic/g;
+    $format =~ s/\$perce?nt/\%/go;
+    $format =~ s/\$nop//go;
+    $format =~ s/\$n/\n/go;
+    $format =~ s/\$dollar/\$/go;
 
-      #print STDERR "key=$key, path=$path, sortProp=".$this->{_sortPropOfTopic}{$key}."\n";
-
-      $this->{_isNumerical} = 0 
-        if $this->{_isNumerical} && $this->{_sortPropOfTopic}{$key} && !($this->{_sortPropOfTopic}{$key} =~ /^[+-]?\d+(\.\d+)?$/);
+    my @crits = ();
+    foreach my $item (split(/\s*,\s*/, $format)) {
+      push @crits, $item;
     }
+
+    my $path = join(" and ", @crits);
+    $this->{_sortPropOfTopic}{$key} = $this->_expandPath($obj, $path) || '';
+
+    #print STDERR "key=$key, path=$path, sortProp=".$this->{_sortPropOfTopic}{$key}."\n";
+
+    $this->{_isNumerical} = 0
+      if $this->{_isNumerical} && $this->{_sortPropOfTopic}{$key} && !($this->{_sortPropOfTopic}{$key} =~ /^[+-]?\d+(\.\d+)?$/);
   }
 
   $this->{_count}++;
@@ -129,21 +134,17 @@ sub init {
 
   my @keys = keys %{$this->{_objects}};
 
-  if ($this->{sorting} && $this->{sorting} ne 'off') {
-    my $props = $this->{_sortPropOfTopic};
+  my $props = $this->{_sortPropOfTopic};
 
-    if (scalar(@keys) > 1) {
-      if ($this->{sorting} ne 'off') {
-        if ($this->{_isNumerical}) {
-          @keys =
-            sort { ($props->{$a} || 0) <=> ($props->{$b} || 0) || $a cmp $b} @keys;
-        } else {
-          @keys =
-            sort { $props->{$a} cmp $props->{$b} || $a cmp $b} @keys;
-        }
-      }
-      @keys = reverse @keys if $this->{reverse};
+  if (scalar(@keys) > 1) {
+    if ($this->{_isNumerical}) {
+      @keys =
+        sort { ($props->{$a} || 0) <=> ($props->{$b} || 0) || $a cmp $b } @keys;
+    } else {
+      @keys =
+        sort { $props->{$a} cmp $props->{$b} || $a cmp $b } @keys;
     }
+    @keys = reverse @keys if $this->{reverse};
   }
 
   $this->{_sortIndex} = \@keys;
@@ -201,9 +202,9 @@ sub reset {
 }
 
 sub all {
-  my $this = @_;
+  my $this = shift;
 
-  $this->sort;
+  $this->init;
   return @{$this->{_sortIndex}};
 }
 

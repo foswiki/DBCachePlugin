@@ -32,8 +32,8 @@ our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
 
 our $core;
 our $addDependency;
-our $isEnabledSaveHandler;
-our $isEnabledRenameHandler;
+our @isEnabledSaveHandler = ();
+our @isEnabledRenameHandler = ();
 our @knownIndexTopicHandler = ();
 
 ###############################################################################
@@ -101,8 +101,8 @@ sub initPlugin {
     $addDependency = \&nullHandler;
   }
 
-  $isEnabledSaveHandler = 1;
-  $isEnabledRenameHandler = 1;
+  @isEnabledSaveHandler = ();
+  @isEnabledRenameHandler = ();
 
   return 1;
 }
@@ -112,8 +112,10 @@ sub finishPlugin {
 
   my $session = $Foswiki::Plugins::SESSION;
   @knownIndexTopicHandler = ();
+  @isEnabledSaveHandler = ();
+  @isEnabledRenameHandler = ();
 
-  #$core->finish if defined $core;
+  $core->finish if defined $core;
   $core = undef;
 }
 
@@ -152,22 +154,22 @@ sub restUpdateCache {
 
 ###############################################################################
 sub disableSaveHandler {
-  $isEnabledSaveHandler = 0;
+  push @isEnabledSaveHandler, 1;
 }
 
 ###############################################################################
 sub enableSaveHandler {
-  $isEnabledSaveHandler = 1;
+  pop @isEnabledSaveHandler;
 }
 
 ###############################################################################
 sub disableRenameHandler {
-  $isEnabledRenameHandler = 0;
+  push @isEnabledRenameHandler, 1;
 }
 
 ###############################################################################
 sub enableRenameHandler {
-  $isEnabledRenameHandler = 1;
+  pop @isEnabledRenameHandler;
 }
 
 ###############################################################################
@@ -180,7 +182,7 @@ sub loadTopic {
 sub afterSaveHandler {
   #my ($text, $topic, $web, $meta) = @_;
 
-  return unless $isEnabledSaveHandler;
+  return if scalar(@isEnabledSaveHandler);
 
   # Temporarily disable afterSaveHandler during a "createweb" action:
   # The "createweb" action calls save serveral times during its operation.
@@ -205,7 +207,7 @@ sub afterSaveHandler {
 # deprecated: use afterUploadSaveHandler instead
 sub afterAttachmentSaveHandler {
   #my ($attrHashRef, $topic, $web) = @_;
-  return unless $isEnabledSaveHandler;
+  return if scalar(@isEnabledSaveHandler);
 
   return if $Foswiki::Plugins::VERSION >= 2.1 || 
     $Foswiki::cfg{DBCachePlugin}{UseUploadHandler}; # set this to true if you backported the afterUploadHandler
@@ -216,7 +218,7 @@ sub afterAttachmentSaveHandler {
 ###############################################################################
 # Foswiki::Plugins::VERSION >= 2.1
 sub afterUploadHandler {
-  return unless $isEnabledSaveHandler;
+  return if scalar(@isEnabledSaveHandler);
 
   my ($attrHashRef, $meta) = @_;
   my $web = $meta->web;
@@ -227,7 +229,7 @@ sub afterUploadHandler {
 ###############################################################################
 # Foswiki::Plugins::VERSION >= 2.1
 sub afterRenameHandler {
-  return unless $isEnabledRenameHandler;
+  return if scalar(@isEnabledRenameHandler);
 
   my ($web, $topic, $attachment, $newWeb, $newTopic, $newAttachment) = @_;
 

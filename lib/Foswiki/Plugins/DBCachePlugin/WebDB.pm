@@ -57,7 +57,6 @@ sub writeDebug {
   print STDERR "- DBCachePlugin::WebDB - $_[0]\n" if TRACE;
 }
 
-
 ###############################################################################
 # cache time we loaded the cacheFile
 sub load {
@@ -101,7 +100,7 @@ sub onReload {
 
     # SMELL: call getRevisionInfo to make sure the latest revision is loaded
     # for get('TOPICINFO') further down the code
-    $meta->getRevisionInfo();
+    # $meta->getRevisionInfo();
 
     writeDebug("reloading $topic");
 
@@ -140,26 +139,27 @@ sub onReload {
 
     # 1. get from preferences
     my $topicTitle = $this->getPreference($obj, 'TOPICTITLE');
+    #print STDERR "... getting topicTitle from preference: ".($topicTitle//'undef')."\n";
 
     # 2. get from form
     if ($form && (!defined $topicTitle || $topicTitle eq '')) {
-      #print STDERR "trying form\n";
       $topicTitle = $form->fastget($topicTitleField) || '';
       $topicTitle = urlDecode($topicTitle);
+      #print STDERR "... getting topicTitle from form: ".($topicTitle//'undef')."\n";
     }
 
     # 4. use topic name
     unless ($topicTitle) {
-      #print STDERR "defaulting to topic name\n";
       if ($topic eq 'WebHome') {
         $topicTitle = $this->{web};
         $topicTitle =~ s/^.*[\.\/]//;
       } else {
         $topicTitle = $topic;
       }
+      #print STDERR "... getting topicTitle from topic name: ".($topicTitle//'undef')."\n";
     }
 
-    #print STDERR "found topictitle=$topicTitle\n" if $topicTitle;
+    #print STDERR "... found topicTitle: ".($topicTitle//'undef')."\n";
     $obj->set('topictitle', $topicTitle);
 
     # This is to maintain the Inheritance formfield for the WikiWorkbenchContrib
@@ -357,6 +357,10 @@ sub expandPath {
     my $result = $this->expandPath($theRoot, $1);
     return lc($result);
   }
+  if ($thePath =~ /^length\((.*)\)$/) {
+    my $result = $this->expandPath($theRoot, $1);
+    return length($result);
+  }
   if ($thePath =~ /^'([^']*)'$/) {
 
     #print STDERR "DEBUG: here1 - result=$1\n";
@@ -376,6 +380,7 @@ sub expandPath {
   if ($thePath =~ m/^(\w+)(.*)$/o) {
     my $first = $1;
     my $tail = $2;
+    $tail =~ s/^\.//;
     my $root;
     my $form = $theRoot->fastget('form');
     $form = $theRoot->fastget($form) if $form;
