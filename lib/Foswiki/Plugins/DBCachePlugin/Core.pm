@@ -95,7 +95,7 @@ sub renderWikiWordHandler {
 
   #_writeDebug("topicTitle=$topicTitle");
 
-  return unless defined($topicTitle) && $topicTitle ne $theTopic;
+  return unless defined($topicTitle) && $topicTitle ne $theLinkText;
   return $topicTitle;
 }
 
