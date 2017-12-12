@@ -25,8 +25,8 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '10.10';
-our $RELEASE = '29 Jul 2017';
+our $VERSION = '10.20';
+our $RELEASE = '12 Dec 2017';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
 
@@ -103,6 +103,9 @@ sub initPlugin {
 
   @isEnabledSaveHandler = ();
   @isEnabledRenameHandler = ();
+
+  # this plugin handles TopicTitles
+  Foswiki::Func::getContext()->{TopicTitleEnabled} = 1;
 
   return 1;
 }

@@ -454,6 +454,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  12 Dec 2017: | only set the link text of !WikiWords if there actually _is_ a !TopicTitle for it; set the =TopicTitleEnabled= context for natedit |
 |  28 Jul 2017: | fixed restricted search; added random sorting of search results; performance improvements re-loading cache files; fixed "Can't use string as a HASH ref"; added =length()= function to formating | 
 |  16 Jan 2017: | oo-ify core and other code cleanup |
 |  11 Jul 2016: | make use of clean-up feature of latest <nop>DBCacheContrib; performance improvements |
