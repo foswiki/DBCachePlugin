@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1457452328" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1527513780" format="1.1" version="1"}%
 ---+!! <nop>%TOPIC%
 %FORMFIELD{"Description"}%
 
@@ -50,7 +50,6 @@ parameter =OBJECT= that refers to =SomeTopic=, that is the object this method ha
 *DBRECURSE* iterates over topics in a web following a certain topic-to-topic relation, like
 the parent-child relation among topics. You can define arbitrary relations using filters.
 
-
 ---++ Syntax
 ---+++ DBCALL
 Fetch topic content or a section of it from the database store.
@@ -98,6 +97,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 | =footer="..."= | format string to appended to the list of hits |
 | =separator="..."= | format string used to separate hits; \
   defaults to "$n"; the special separator "none" disables separation |
+| dateformat="..." | format of any date formfield in case you'd like to deviate from the default date format |
 | =include="..."= | pattern each found topic name must match to be considered a hit; can also be a comma separated list of topics |
 | =exclude="..."= | pattern each found topic name must not match to be considered a hit; can also be a comma separated list of topics |
 | =sort="..."= | specifies the sorting of hits; this can be a comma separted list of attributes to specify more complicated sortings; special value "random"; defaults to "name" |
@@ -106,6 +106,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 | =warn="on,off"= | enable/suppress error warnings |
 | =skip="..."= | number of topics to skip while constructing the hit set; defaults to "0" |
 | =hidenull="..."= | flag to indicate that an empty hit set should not be displayed |
+| =newline="..."= | string to substitute newlines in formfield values with, e.g. =newline="&lt;br />"= | |
 | =remote="on,off"= | switch fixing !WikiWords in transcluded content; \
                      =on= means "don't touch, this is remote content" \
 		     defaults to "on" |
@@ -120,10 +121,10 @@ Following variables are expanded in format strings:
    * $index: the current row index in the search
    * $web: the web where the hits where found
    * $formfield(&lt;formfield-name>): the value of the given formfield
-   * $formatTime(&lt;formfield-accessor> [,&lt;format>]): format the datefield pointed
+   * $formatTime(&lt;formfield-accessor> [, '&lt;format>']): format the datefield pointed
      to by the &lt;formfield-accessor> using the given &lt;format>; the format can be
      in any form supported by =Foswiki::Func::formatTime()= 
-     (see [[%SYSTEMWEB%.Macros#DISPLAYTIME_format_formatted_dis][Macros]] documentation).
+     (see the [[%SYSTEMWEB%.VarGMTIME][GMTIME]] documentation).
    * $expand(&lt;formfield-accessor>): return the formfield pointed to by the 
       &lt;formfield-accessor>
    * $html(&lt;formfield-accessor>): same as =$expand()= but expands macros and TML markup
@@ -181,6 +182,7 @@ Traverse topic-to-topic relations, like the intrinsic parent-child relation
 | =depth="..."= | only recurse to a given depth, defaults to =0= (unlimited) |
 | =include="..."= | regular expression topics must match to be included in the search; can also be a comma separated list of topics |
 | =exclude="..."= | regular expression that excludes matching topics from the search; can also be a comma separated list of topics |
+| =newline="..."= | string to substitute newlines in formfield values with, e.g. =newline="&lt;br />"= | |
 
 The =...format=, =...header= and =...footer= format strings may contain the following variables:
    * $web: the current web
@@ -206,7 +208,6 @@ Example:
 <verbatim>%DBRECURSE{"%SYSTEMWEB%.FrequentlyAskedQuestions"}%</verbatim>
  lists all %SYSTEMWEB%.FrequentlyAskedQuestions topics (with properly set topic parent):
 %DBRECURSE{"%SYSTEMWEB%.FrequentlyAskedQuestions"}%
-
 
 ---+++ DBSTATS
 Compute and format a statistics on the database.
@@ -319,7 +320,6 @@ previous and next blog entry in a list of postings ordered by created date:
 
 (from Foswiki:Extensions/BlogPlugin)
 
-
 ---++ Syntax of search queries
 A search query is a boolean expression on fields of a topic. (Tip: use %DBDUMP to explore the available fields).
 
@@ -372,12 +372,11 @@ use Foswiki::Plugins::DBCachePlugin;
 
 Foswiki::Plugins::DBCachePlugin::registerIndexTopicHandler(sub {
   my ($db, $obj, $web, $topic, $meta, $text) = @_;
-  
+
   ...
   $obj->set("foo", "bar");
 });
 </verbatim>
-
 
 ---+++ <nop>DBCachePlugin::WebDB 
 This implements the database object that is used to access the topic records in
@@ -426,7 +425,7 @@ See also DBCacheContrib for additional configuration settings.
 
 Each web can specify an alternative implementation inheriting from <nop>DBCachePlugin::WebDB.
 To specify it you have to set the =WEBDB= variable in the WebPreferences. The default is =Foswiki::Plugins::DBCachePlugin::WebDB=
-   
+
 ---+++ <nop>MemoryCache
 If =$Foswiki::cfg{DBCache}{MemoryCache}= is set to FALSE (defaults to TRUE)
 the dbcache once loaded into memory will stay there among multiple requests.
@@ -454,6 +453,9 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  28 May 2018: | remove local implementation of !TopicTitle; depend on !TopicTitlePlugin instead; \
+                  new parameter =dateformat= for =DBQUERY=; performance improvements in =DBQUERY= |
+|  20 Feb 2018: | extend =$expand()= to return a multi-value reference formfield to return all values |
 |  12 Dec 2017: | only set the link text of !WikiWords if there actually _is_ a !TopicTitle for it; set the =TopicTitleEnabled= context for natedit |
 |  28 Jul 2017: | fixed restricted search; added random sorting of search results; performance improvements re-loading cache files; fixed "Can't use string as a HASH ref"; added =length()= function to formating | 
 |  16 Jan 2017: | oo-ify core and other code cleanup |
@@ -598,11 +600,11 @@ automatically from there on.
 
 %META:FORM{name="PackageForm"}%
 %META:FIELD{name="Author" title="Author" value="Michael Daum"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2017, Michael Daum http://michaeldaumconsulting.com"}%
+%META:FIELD{name="Version" title="Version" value="%25$VERSION%25"}%
+%META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
-%META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%TOPIC%"}%
-%META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
-%META:FIELD{name="Release" title="Release" value="%$RELEASE%"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/DBCachePlugin"}%
-%META:FIELD{name="Support" title="Support" value="Foswiki:Support/%TOPIC%"}%
-%META:FIELD{name="Version" title="Version" value="%$VERSION%"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2018, Michael Daum http://michaeldaumconsulting.com"}%
+%META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
+%META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%25TOPIC%25"}%
+%META:FIELD{name="Support" title="Support" value="Foswiki:Support/%25TOPIC%25"}%

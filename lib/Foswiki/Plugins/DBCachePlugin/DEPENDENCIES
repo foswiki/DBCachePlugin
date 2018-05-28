@@ -1,4 +1,6 @@
-Foswiki::Contrib::DBCacheContrib,>=4.11,perl,Required
-Time::ParseDate,>=2003.0211,cpan,Required
+Foswiki::Contrib::DBCacheContrib,>=4.30,perl,Required
+Time::ParseDate,>=2015.103,cpan,Required
 Storable,>=2.07,cpan,Required
 Sereal,>=3.00,cpan,Optional
+ONLYIF ( $Foswiki::Plugins::VERSION < 2.6)
+Foswiki::Plugins::TopicTitlePlugin,>1.00,perl,Required for Foswiki < 2.2

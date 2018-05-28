@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2017 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2018 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -399,21 +399,31 @@ sub expandPath {
     my $first = $1;
     my $tail = $2;
     $tail =~ s/^\.//;
-    my $result = $this->expandPath($theRoot, $first);
+
+    my $ref = $this->expandPath($theRoot, $first);
     my $root;
-    if (ref($result)) {
-      $root = $result;
-    } else {
-      if ($result =~ /^(.*)\.(.*?)$/) {
-        my $db = Foswiki::Plugins::DBCachePlugin::getDB($1);
-        return '' unless defined $db;
+    if (ref($ref)) {
+      $root = $ref;
+      return $this->expandPath($root, $tail);
+    } 
+
+    my @results = ();
+    $ref =~ s/^\s+|\s+$//g;
+
+    foreach my $refItem (split(/\s*,\s*/, $ref)) {
+      my $db;
+      if ($refItem =~ /^(.*)\.(.*?)$/) {
+        $db = Foswiki::Plugins::DBCachePlugin::getDB($1);
+        next unless defined $db;
         $root = $db->fastget($2);
-        return $db->expandPath($root, $tail);
       } else {
-        $root = $this->fastget($result);
+        $root = $this->fastget($refItem);
+        $db = $this;
       }
+      push @results, $db->expandPath($root, $tail);
     }
-    return $this->expandPath($root, $tail);
+
+    return join(", ", @results);
   }
 
   if ($thePath =~ /^%/) {

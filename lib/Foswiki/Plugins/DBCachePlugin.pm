@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2017 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2018 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -25,8 +25,8 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '10.21';
-our $RELEASE = '12 Dec 2017';
+our $VERSION = '11.00';
+our $RELEASE = '28 May 2018';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
 
@@ -70,14 +70,6 @@ sub initPlugin {
     return getCore()->handleNeighbours(0, @_);
   });
 
-  Foswiki::Func::registerTagHandler('TOPICTITLE', sub {
-    return getCore()->handleTOPICTITLE(@_);
-  });
-
-  Foswiki::Func::registerTagHandler('GETTOPICTITLE', sub {
-    return getCore()->handleTOPICTITLE(@_);
-  });
-
   Foswiki::Func::registerRESTHandler('updateCache', \&restUpdateCache, 
     authenticate => 1,
     validate => 0,
@@ -103,9 +95,6 @@ sub initPlugin {
 
   @isEnabledSaveHandler = ();
   @isEnabledRenameHandler = ();
-
-  # this plugin handles TopicTitles
-  Foswiki::Func::getContext()->{TopicTitleEnabled} = 1;
 
   return 1;
 }
@@ -240,11 +229,6 @@ sub afterRenameHandler {
 }
 
 ###############################################################################
-sub renderWikiWordHandler {
-  return getCore()->renderWikiWordHandler(@_);
-}
-
-###############################################################################
 # tags
 
 ###############################################################################
@@ -255,10 +239,6 @@ sub getDB {
 
 sub unloadDB {
   return getCore()->unloadDB(@_);
-}
-
-sub getTopicTitle {
-  return getCore()->getTopicTitle(@_);
 }
 
 sub registerIndexTopicHandler {

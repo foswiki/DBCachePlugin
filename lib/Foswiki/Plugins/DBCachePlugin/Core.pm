@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2017 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2018 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -75,88 +75,6 @@ sub new {
 
 
   return $this;
-}
-
-###############################################################################
-sub renderWikiWordHandler {
-  my ($this, $theLinkText, $hasExplicitLinkLabel, $theWeb, $theTopic) = @_;
-
-  return if $hasExplicitLinkLabel;
-
-  #_writeDebug("called renderWikiWordHandler($theLinkText, ".($hasExplicitLinkLabel?'1':'0').", $theWeb, $theTopic)");
-
-  return if !defined($theWeb) and !defined($theTopic);
-
-  # normalize web name
-  $theWeb =~ s/\//./g;
-
-  $theWeb = Foswiki::Sandbox::untaintUnchecked($theWeb);    # woops why is theWeb tainted
-  my $topicTitle = $this->getTopicTitle($theWeb, $theTopic);
-
-  #_writeDebug("topicTitle=$topicTitle");
-
-  return unless defined($topicTitle) && $topicTitle ne $theLinkText;
-  return $topicTitle;
-}
-
-###############################################################################
-sub getTopicTitle {
-  my ($this, $web, $topic, $rev) = @_;
-
-  ($web, $topic) = Foswiki::Func::normalizeWebTopicName($web, $topic);
-
-  my $topicTitle = $topic;
-
-  if ($rev) {
-    my ($meta) = Foswiki::Func::readTopic($web, $topic, $rev);
-
-    my $topicTitleField = Foswiki::Func::getPreferencesValue("TOPICTITLE_FIELD") || "TopicTitle";
-
-    # read the formfield value
-    $topicTitle = $meta->get('FIELD', $topicTitleField);
-    $topicTitle = $topicTitle->{value} if $topicTitle;
-
-    # read the topic preference
-    unless ($topicTitle) {
-      $topicTitle = $meta->get('PREFERENCE', 'TOPICTITLE');
-      $topicTitle = $topicTitle->{value} if $topicTitle;
-    }
-
-    # read the preference
-    unless ($topicTitle)  {
-      Foswiki::Func::pushTopicContext($web, $topic);
-      $topicTitle = Foswiki::Func::getPreferencesValue('TOPICTITLE');
-      Foswiki::Func::popTopicContext();
-    }
-
-  } else {
-    my $db = $this->getDB($web);
-    return $topic unless $db;
-
-    my $topicObj = $db->fastget($topic);
-    return $topic unless $topicObj;
-
-    if ($Foswiki::cfg{SecureTopicTitles}) {
-      my $wikiName = Foswiki::Func::getWikiName();
-      return $topic
-        unless Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, $topic, $web);
-    }
-
-    $topicTitle = $topicObj->fastget('topictitle');
-  }
-
-  # default to topic name
-  $topicTitle = $topic unless $topicTitle;
-
-  $topicTitle =~ s/\s*$//;
-  $topicTitle =~ s/^\s*//;
-
-  if ($topicTitle eq $Foswiki::cfg{HomeTopicName}) {
-    $topicTitle = $web;
-    $topicTitle =~ s/^.*[\.\/]//;
-  }
-
-  return $topicTitle;
 }
 
 
@@ -267,40 +185,6 @@ sub handleNeighbours {
 }
 
 ###############################################################################
-sub handleTOPICTITLE {
-  my ($this, $session, $params, $theTopic, $theWeb) = @_;
-
-  my $baseWeb = $session->{webName};
-  my $baseTopic = $session->{topicName};
-  my $thisTopic = $params->{_DEFAULT} || $params->{topic} || $baseTopic;
-  my $thisWeb = $params->{web} || $baseWeb;
-  my $theEncoding = $params->{encode} || '';
-  my $theDefault = $params->{default};
-  my $theRev = $params->{rev};
-  my $theHideAutoInc = Foswiki::Func::isTrue($params->{hideautoinc}, 0);
-
-  $thisTopic =~ s/^\s+//g;
-  $thisTopic =~ s/\s+$//g;
-
-  ($thisWeb, $thisTopic) =
-    Foswiki::Func::normalizeWebTopicName($thisWeb, $thisTopic);
-
-  my $topicTitle = $this->getTopicTitle($thisWeb, $thisTopic, $theRev);
-
-  if ($topicTitle eq $thisTopic && defined($theDefault)) {
-    $topicTitle = $theDefault;
-  }
-
-  return '' if $theHideAutoInc && $topicTitle =~ /X{10}|AUTOINC\d/;
-
-  return _quoteEncode($topicTitle) if $theEncoding eq 'quotes';
-  return _urlEncode($topicTitle) if $theEncoding eq 'url';
-  return _entityEncode($topicTitle) if $theEncoding eq 'entity';
-
-  return $topicTitle;
-}
-
-###############################################################################
 sub handleDBQUERY {
   my ($this, $session, $params, $theTopic, $theWeb) = @_;
 
@@ -326,6 +210,7 @@ sub handleDBQUERY {
   my $theSkip = $params->{skip} || 0;
   my $theHideNull = Foswiki::Func::isTrue($params->{hidenull}, 0);
   my $theRemote = Foswiki::Func::isTrue($params->remove('remote'), 0);
+  my $theNewline = $params->{newline};
   my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
 
   $theFormat = '$topic' unless defined $theFormat;
@@ -431,19 +316,20 @@ sub handleDBQUERY {
       $line =~ s/\$formfield\((.*?)\)/
         my $temp = $theDB->getFormField($topicName, $1);
         $temp =~ s#\)#${TranslationToken}#g;
-      $temp/geo;
+        $temp =~ s#\r?\n#$theNewline#gs if defined $theNewline;
+        $temp/geo;
       $line =~ s/\$expand\((.*?)\)/
         my $temp = $1;
         $temp = $theDB->expandPath($topicObj, $temp);
         $temp =~ s#\)#${TranslationToken}#g;
-      $temp/geo;
+        $temp/geo;
       $line =~ s/\$html\((.*?)\)/
         my $temp = $1;
         $temp = $theDB->expandPath($topicObj, $temp);
         $temp =~ s#\)#${TranslationToken}#g;
         $temp = Foswiki::Func::expandCommonVariables($temp, $topicName, $web);
         $temp = Foswiki::Func::renderText($temp, $web, $topicName);
-      $temp/geo;
+        $temp/geo;
       $line =~ s/\$d2n\((.*?)\)/_parseTime($theDB->expandPath($topicObj, $1))/ge;
       $line =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($topicObj, $1), $2)/ge;    # single quoted
       $line =~ s/\$topic/$topicName/g;
@@ -641,6 +527,20 @@ sub handleDBCALL {
     }
   }
 
+  # check access rights
+  my $wikiName = Foswiki::Func::getWikiName();
+
+  #unless (Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, $thisTopic, $thisWeb)) {
+  unless ($thisDB->checkAccessPermission('VIEW', $wikiName, $topicObj)) {
+    return $doWarnings?_inlineError("ERROR: DBCALL access to '$thisWeb.$thisTopic' denied"):"";
+  }
+
+  # get section
+  my $sectionText = $topicObj->fastget("_section$section") if $topicObj;
+  if (!defined $sectionText) {
+    return $doWarnings?_inlineError("ERROR: DBCALL can't find section '$section' in topic '$thisWeb.$thisTopic'"):"";
+  }
+
   my %saveTags;
   if ($Foswiki::Plugins::VERSION >= 2.1) {
     Foswiki::Func::pushTopicContext($baseWeb, $baseTopic);
@@ -665,18 +565,6 @@ sub handleDBCALL {
         $session->{SESSION_TAGS}{$key} = $val;
       }
     }
-  }
-
-  # check access rights
-  my $wikiName = Foswiki::Func::getWikiName();
-  unless (Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, $thisTopic, $thisWeb)) {
-    return $doWarnings?_inlineError("ERROR: DBCALL access to '$thisWeb.$thisTopic' denied"):"";
-  }
-
-  # get section
-  my $sectionText = $topicObj->fastget("_section$section") if $topicObj;
-  if (!defined $sectionText) {
-    return $doWarnings?_inlineError("ERROR: DBCALL can't find section '$section' in topic '$thisWeb.$thisTopic'"):"";
   }
 
   # prevent recursive calls
@@ -745,6 +633,7 @@ sub handleDBSTATS {
   my $theHideNull = Foswiki::Func::isTrue($params->{hidenull}, 0);
   my $theExclude = $params->{exclude};
   my $theInclude = $params->{include};
+  my $theDateFormat = $params->{dateformat} || $Foswiki::cfg{DefaultDateFormat};
   my $theCase = Foswiki::Func::isTrue($params->{casesensitive}, 0);
   $theLimit =~ s/[^\d]//g;
 
@@ -808,7 +697,7 @@ sub handleDBSTATS {
 	}
       }
       next unless $fieldValue; # unless present
-      $fieldValue = _formatTime($fieldValue) if $field =~ /created(ate)?|modified|publishdate/;
+      $fieldValue = _formatTime($fieldValue, $theDateFormat) if $field =~ /created(ate)?|modified|publishdate/;
       #_writeDebug("reading field $field found $fieldValue");
 
       foreach my $item (split(/$theSplit/, $fieldValue)) {
@@ -1134,6 +1023,7 @@ sub formatRecursive {
     $text =~ s/\$formfield\((.*?)\)/
       my $temp = $theDB->getFormField($topicName, $1);
       $temp =~ s#\)#${TranslationToken}#g;
+      $temp =~ s#\r?\n#$params->{newline}#gs if defined $params->{newline};
       $temp/geo;
     $text =~ s/\$expand\((.*?)\)/
       my $temp = $theDB->expandPath($topicObj, $1);
