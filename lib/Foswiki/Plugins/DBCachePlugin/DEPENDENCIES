@@ -1,5 +1,4 @@
-Foswiki::Contrib::DBCacheContrib,>=4.30,perl,Required
-Time::ParseDate,>=2015.103,cpan,Required
+Foswiki::Contrib::DBCacheContrib,>=5.00,perl,Required
 Storable,>=2.07,cpan,Required
 Sereal,>=3.00,cpan,Optional
 ONLYIF ( $Foswiki::Plugins::VERSION < 2.6)

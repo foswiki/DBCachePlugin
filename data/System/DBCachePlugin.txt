@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1527513780" format="1.1" version="1"}%
+%META:TOPICINFO{author="micha" comment="" date="1538295443" format="1.1" version="2"}%
 ---+!! <nop>%TOPIC%
 %FORMFIELD{"Description"}%
 
@@ -135,6 +135,7 @@ Following variables are expanded in format strings:
    * $trunc(...,length): truncate a string to the given length
    * $uc(...): converts a string to upper case
    * $lc(...): converts a string to lower case
+   * $translate(...): translate a string using Foswiki's internal I18N or [[Foswiki:Extensions/MultiLingualPlugin][MultiLingualPlugin]] if installed
 
 *Formfield accessors:*
 
@@ -453,6 +454,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  01 Oct 2018: | rationalized handing date data |
 |  28 May 2018: | remove local implementation of !TopicTitle; depend on !TopicTitlePlugin instead; \
                   new parameter =dateformat= for =DBQUERY=; performance improvements in =DBQUERY= |
 |  20 Feb 2018: | extend =$expand()= to return a multi-value reference formfield to return all values |

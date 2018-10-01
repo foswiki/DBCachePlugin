@@ -21,6 +21,7 @@ use strict;
 use warnings;
 
 use Foswiki::Func ();
+use Foswiki::Time ();
 use Foswiki::Plugins::DBCachePlugin ();
 
 use Foswiki::Iterator ();
@@ -89,10 +90,10 @@ sub add {
     my $format = $this->{sorting};
     $format =~ s/\$web/$web/g;
     $format =~ s/\$topic/$topic/g;
-    $format =~ s/\$perce?nt/\%/go;
-    $format =~ s/\$nop//go;
-    $format =~ s/\$n/\n/go;
-    $format =~ s/\$dollar/\$/go;
+    $format =~ s/\$perce?nt/\%/g;
+    $format =~ s/\$nop//g;
+    $format =~ s/\$n/\n/g;
+    $format =~ s/\$dollar/\$/g;
 
     my @crits = ();
     foreach my $item (split(/\s*,\s*/, $format)) {
@@ -100,7 +101,15 @@ sub add {
     }
 
     my $path = join(" and ", @crits);
-    $this->{_sortPropOfTopic}{$key} = $this->_expandPath($obj, $path) || '';
+    my $val = $this->_expandPath($obj, $path) || '';
+
+    if ($this->{_isNumerical} && $val !~ /^[+-]?\d+(\.\d+)?$/) {
+      # try to interpret it as a date
+      my $epoch = Foswiki::Time::parseTime($val);
+      $val = $epoch if defined $epoch;
+    }
+
+    $this->{_sortPropOfTopic}{$key} = $val;
 
     #print STDERR "key=$key, path=$path, sortProp=".$this->{_sortPropOfTopic}{$key}."\n";
 

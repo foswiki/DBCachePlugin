@@ -44,7 +44,7 @@ sub new {
   my $this = bless($class->SUPER::new($web, $cacheName), $class);
   #$this->{_loadTime} = 0;
   $this->{web} = $this->{_web};
-  $this->{web} =~ s/\./\//go;
+  $this->{web} =~ s/\./\//g;
 
   $this->{prevTopicCache} = ();
   $this->{nextTopicCache} = ();
