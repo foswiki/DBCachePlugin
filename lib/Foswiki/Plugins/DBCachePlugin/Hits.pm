@@ -45,51 +45,54 @@ sub new {
   $this->{_isNumerical} = 1;
   $this->{_index} = 0;
   $this->{_count} = 0;
-  $this->{_sortPropOfTopic} = {};
+  $this->{_sortPropOfObj} = {};
   $this->{_sortIndex} = undef;
 
   return $this;
 }
 
 sub add {
-  my ($this, $topic, $obj) = @_;
+  my ($this, $name, $obj) = @_;
 
+  my $key = $name;
   my $web = $obj->fastget("web");
-  my $key = $web . "." . $topic;
+  $key = $web . "." . $key if defined $web;
+
   $this->{_objects}{$key} = $obj;
 
   # sort by name
   if ($this->{sorting} =~ /^(on|name)$/) {
-    $this->{_sortPropOfTopic}{$key} = $topic;
+    $this->{_sortPropOfObj}{$key} = $name;
     $this->{_isNumerical} = 0;
   }
 
   # sort by create date
   elsif ($this->{sorting} =~ /^created/) {
-    $this->{_sortPropOfTopic}{$key} = $obj->fastget('createdate');
+    $this->{_sortPropOfObj}{$key} = $obj->fastget('createdate');
   }
 
   # sort by date
   elsif ($this->{sorting} =~ /^(modified|info\.date)/) {
     my $info = $obj->fastget('info');
-    $this->{_sortPropOfTopic}{$key} = $info ? $info->fastget('date') : 0;
+    $this->{_sortPropOfObj}{$key} = $info ? $info->fastget('date') : 0;
   }
 
   # sort randomly
   elsif ($this->{sorting} =~ /^rand(om)?$/) {
-    $this->{_sortPropOfTopic}{$key} = rand();
+    $this->{_sortPropOfObj}{$key} = rand();
   }
 
   # sort by time added
   elsif ($this->{sorting} =~ /^off$/i) {
-    $this->{_sortPropOfTopic}{$key} = $this->{_count};
+    $this->{_sortPropOfObj}{$key} = $this->{_count};
   }
 
   # sort by property
   else {
     my $format = $this->{sorting};
     $format =~ s/\$web/$web/g;
-    $format =~ s/\$topic/$topic/g;
+    $format =~ s/\$topic/$name/g;
+    $format =~ s/\$name/$name/g;
     $format =~ s/\$perce?nt/\%/g;
     $format =~ s/\$nop//g;
     $format =~ s/\$n/\n/g;
@@ -109,12 +112,12 @@ sub add {
       $val = $epoch if defined $epoch;
     }
 
-    $this->{_sortPropOfTopic}{$key} = $val;
+    $this->{_sortPropOfObj}{$key} = $val;
 
-    #print STDERR "key=$key, path=$path, sortProp=".$this->{_sortPropOfTopic}{$key}."\n";
+    #print STDERR "key=$key, path=$path, sortProp=".$this->{_sortPropOfObj}{$key}."\n";
 
     $this->{_isNumerical} = 0
-      if $this->{_isNumerical} && $this->{_sortPropOfTopic}{$key} && !($this->{_sortPropOfTopic}{$key} =~ /^[+-]?\d+(\.\d+)?$/);
+      if $this->{_isNumerical} && $this->{_sortPropOfObj}{$key} && !($this->{_sortPropOfObj}{$key} =~ /^[+-]?\d+(\.\d+)?$/);
   }
 
   $this->{_count}++;
@@ -143,7 +146,7 @@ sub init {
 
   my @keys = keys %{$this->{_objects}};
 
-  my $props = $this->{_sortPropOfTopic};
+  my $props = $this->{_sortPropOfObj};
 
   if (scalar(@keys) > 1) {
     if ($this->{_isNumerical}) {

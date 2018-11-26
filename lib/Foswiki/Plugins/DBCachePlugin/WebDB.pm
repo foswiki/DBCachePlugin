@@ -22,6 +22,7 @@ use warnings;
 
 use Foswiki::Contrib::DBCacheContrib ();
 use Foswiki::Contrib::DBCacheContrib::Search ();
+use Foswiki::Contrib::DBCacheContrib::MemMap ();
 use Foswiki::Plugins::DBCachePlugin ();
 use Foswiki::Plugins::DBCachePlugin::Hits ();
 use Foswiki::Attrs ();
@@ -63,12 +64,12 @@ sub load {
   my ($this, $refresh, $web, $topic) = @_;
 
   $refresh ||= 0;
-  writeDebug("called load() for $this->{web}, refresh=$refresh");
+  writeDebug("called load($refresh, ".($web//'undef').", ".($topic//'undef')."), refresh=$refresh");
 
-  if ($refresh == 1 && defined($web) && defined($topic)) {
+  if ($refresh && defined($web) && defined($topic)) {
     # refresh a single topic
+    $this->remove($topic);
     $this->loadTopic($web, $topic);
-    $refresh = 0;
   }
 
   $this->SUPER::load($refresh);
@@ -97,6 +98,7 @@ sub onReload {
     # get meta object
     my ($meta, $text) = Foswiki::Func::readTopic($this->{web}, $topic);
     $this->cleanUpText($text);
+    $text //= "";
 
     # SMELL: call getRevisionInfo to make sure the latest revision is loaded
     # for get('TOPICINFO') further down the code
@@ -256,7 +258,7 @@ sub getNeighbourTopics {
 
 ###############################################################################
 sub dbQuery {
-  my ($this, $theSearch, $theTopics, $theSort, $theReverse, $theInclude, $theExclude, $hits) = @_;
+  my ($this, $theSearch, $theTopics, $theSort, $theReverse, $theInclude, $theExclude, $hits, $theContext) = @_;
 
   # get max hit set
   my @topicNames;
@@ -269,49 +271,49 @@ sub dbQuery {
   @topicNames = grep(!/$theExclude/, @topicNames) if $theExclude;
 
   # parse & fetch
-  my $wikiName = Foswiki::Func::getWikiName();
   my $search;
   if ($theSearch) {
     $search = new Foswiki::Contrib::DBCacheContrib::Search($theSearch);
   }
-
-  my $isAdmin = Foswiki::Func::isAnAdmin();
-  my $webViewPermission = $isAdmin || Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, undef, $this->{web});
 
   $hits ||= Foswiki::Plugins::DBCachePlugin::Hits->new(
     sorting => $theSort,
     reverse => $theReverse,
   );
 
+  my $testObj;
+  $testObj = new Foswiki::Contrib::DBCacheContrib::MemMap() if $theContext;
+
   foreach my $topicName (@topicNames) {
     my $topicObj = $this->fastget($topicName);
     next unless $topicObj;    # never
 
-    if (!$search || $search->matches($topicObj, {webDB=>$this})) {
+    if ($theContext) { # SMELL: experimental
+      my $context = $topicObj->fastget($theContext);
+      next unless $context;
+      my $topicViewAccess = $this->_hasViewAccess($topicName, $topicObj);
 
-      my $topicHasPerms = 0;
-      unless ($isAdmin) {
-        my $prefs = $topicObj->fastget('preferences');
-        if (defined($prefs)) {
-          foreach my $key ($prefs->getKeys()) {
-            if ($key =~ /^(ALLOW|DENY)TOPIC/) {
-              $topicHasPerms = 1;
-              last;
-            }
-          }
+      foreach my $obj ($context->getValues()) {
+        my $name = $obj->fastget("name");
+
+        # init testObj
+        %{$testObj} = ();
+        while (my ($k, $v) = each %$obj) {
+          $testObj->{$k} = $v;
+        }
+        $testObj->set('web', $this->{web});
+        $testObj->set('topic', $topicName);
+        $testObj->set('topictitle', $topicObj->fastget("topictitle"));
+        $testObj->set('name', $name);
+
+        if ((!$search || $search->matches($testObj, {webDB=>$this})) && $topicViewAccess) {
+          my $key = $this->{web}.'::'.$topicName.'::'.$name;
+          my $map = new Foswiki::Contrib::DBCacheContrib::MemMap( initial=> $testObj->{keys});
+          $hits->add($key, $map);
         }
       }
-
-      # don't check access perms on a topic that does not contain any
-      # WARNING: this is hardcoded to assume Foswiki-Core permissions - anyone
-      # doing pluggable Permissions need to
-      # work out howto abstract this concept - or to disable it (its worth about 400mS per topic in the set. (if you're not WikiAdmin))
-      if (
-        $isAdmin 
-        || (!$topicHasPerms && $webViewPermission)
-        || ($topicHasPerms && $this->checkAccessPermission('VIEW', $wikiName, $topicObj)) #Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, $topicName, $this->{web}))
-        ) 
-      {
+    } else {
+      if ((!$search || $search->matches($topicObj, {webDB=>$this})) && $this->_hasViewAccess($topicName, $topicObj)) {
         $hits->add($topicName, $topicObj);
       }
     }
@@ -319,6 +321,35 @@ sub dbQuery {
 
   return $hits;
 }
+
+sub _hasViewAccess {
+  my ($this, $topic, $obj) = @_;
+
+  my $isAdmin = Foswiki::Func::isAnAdmin();
+  my $wikiName = Foswiki::Func::getWikiName();
+  my $webViewPermission = $isAdmin || Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, undef, $this->{web});
+
+  my $topicHasPerms = 0;
+  unless ($isAdmin) {
+    my $prefs = $obj->fastget('preferences');
+    if (defined($prefs)) {
+      foreach my $key ($prefs->getKeys()) {
+        if ($key =~ /^(ALLOW|DENY)TOPIC/) {
+          $topicHasPerms = 1;
+          last;
+        }
+      }
+    }
+  }
+
+  # don't check access perms on a topic that does not contain any
+  # WARNING: this is hardcoded to assume Foswiki-Core permissions - anyone
+  # doing pluggable Permissions need to
+  # work out howto abstract this concept - or to disable it (its worth about 400ms per topic in the set. (if you're not WikiAdmin))
+  return
+    ($isAdmin || (!$topicHasPerms && $webViewPermission) || ($topicHasPerms && $this->checkAccessPermission('VIEW', $wikiName, $obj))) ? 1 : 0;
+}
+
 
 ###############################################################################
 sub expandPath {

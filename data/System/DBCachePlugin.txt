@@ -218,6 +218,9 @@ Compute and format a statistics on the database.
 | ="&lt;search>"= | query string that defines a search, see DBCacheContrib |
 | =web="..."= | the web where to search in (default: current web) |
 | =field(s)="..."= | name of one or more formfields to be extracted (default: "text") |
+| =process="..."= | macro being used to post-process field values extracted from the database; macro are escaped using standard format tokens (=$percnt=, =$dollar=, etc); \
+                    the result is used instead of the direct field value; when extracting multiple =fields=, specific process statements might be specified using \
+                    =process_&lt;field-name1>=, =process_&lt;field-name2=, ... |
 | =split="..."= | regex split up a field value into a list before matching each item against =pattern= |
 | =pattern="..."= | regex pattern to extract keys from the formfield(s); \
                     note, that before the pattern is applied the field value is split up using the =split= parameter; \
@@ -272,6 +275,21 @@ the month and the year as separate url parameters then use something like this:
 Note, that the above pattern will crop away the day. Groups can be nested counting
 them from left to right, outside to inside:  the first group matches the
 compete pattern, the second the month the third the year.
+
+Post-processing field values using a =process= macro comes in handy when dealing with formfields of type =date=.
+As these are stored in epoch seconds, you might decide to format them into an appropriate way before generating statistics on its base:
+
+<verbatim class="tml">
+%DBSTATS{
+  "form='Invoice'"
+  field="PaidDate"
+  process="$percntDATETIME{\"$value\" format=\"$month $year\"}$percnt"
+  pattern="(.*?) (\d\d\d\d)"
+...
+}%
+</verbatim>
+
+While the real value of a "PaidDate" formfield is stored in epoch seconds, statistics make more sense on a per month basis.
 
 ---+++ TOPICTITLE
 derive the title of a topic from a couple of properties:
@@ -454,6 +472,9 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  26 Nov 2018: | added =process= parameter to =DBSTATS= to post-process field values before generating statistics; \
+                  return the empty string instead of ??? when parsing an empty or zero time value; \
+                  disabled dependency injection of =DBSTATS= into the page cache for performance reasons (still there for =DBQUERY=) |
 |  01 Oct 2018: | rationalized handing date data |
 |  28 May 2018: | remove local implementation of !TopicTitle; depend on !TopicTitlePlugin instead; \
                   new parameter =dateformat= for =DBQUERY=; performance improvements in =DBQUERY= |
