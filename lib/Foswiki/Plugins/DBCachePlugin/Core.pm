@@ -206,6 +206,7 @@ sub handleDBQUERY {
   my $theLimit = $params->{limit} || '';
   my $theSkip = $params->{skip} || 0;
   my $theHideNull = Foswiki::Func::isTrue($params->{hidenull}, 0);
+  my $theNullFormat = $params->{nullformat};
   my $theRemote = Foswiki::Func::isTrue($params->remove('remote'), 0);
   my $theNewline = $params->{newline};
   my $theContext = $params->{context};
@@ -288,7 +289,10 @@ sub handleDBQUERY {
   if ($error) {
     return $doWarnings ? _inlineError($error) : "";
   }
-  return "" if $theHideNull && (!$hits || $hits->count <= $theSkip);
+  if (!$hits || $hits->count <= $theSkip) {
+    return $theNullFormat if defined $theNullFormat;
+    return "" if $theHideNull;
+  }
 
   # format
   my @result = ();

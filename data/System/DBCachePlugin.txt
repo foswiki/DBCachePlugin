@@ -95,6 +95,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
   defaults to "$topic"; the special format string "none" disables the format string |
 | =header="..."= | format string to prepended to the list of hits |
 | =footer="..."= | format string to appended to the list of hits |
+| =nullformat= | format string to be used when no result was found | |
 | =separator="..."= | format string used to separate hits; \
   defaults to "$n"; the special separator "none" disables separation |
 | dateformat="..." | format of any date formfield in case you'd like to deviate from the default date format |
@@ -474,7 +475,8 @@ automatically from there on.
 %TABLE{columnwidths="7em" tablewidth="100%"}%
 |  26 Nov 2018: | added =process= parameter to =DBSTATS= to post-process field values before generating statistics; \
                   return the empty string instead of ??? when parsing an empty or zero time value; \
-                  disabled dependency injection of =DBSTATS= into the page cache for performance reasons (still there for =DBQUERY=) |
+                  disabled dependency injection of =DBSTATS= into the page cache for performance reasons (still there for =DBQUERY=); \
+                  added =nullformat= parameter to =DBQUERY= |
 |  01 Oct 2018: | rationalized handing date data |
 |  28 May 2018: | remove local implementation of !TopicTitle; depend on !TopicTitlePlugin instead; \
                   new parameter =dateformat= for =DBQUERY=; performance improvements in =DBQUERY= |
