@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2018 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2019 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -369,9 +369,9 @@ sub expandPath {
     my $first = $1;
     my $tail = $2;
     my $result1 = $this->expandPath($theRoot, $first);
-    return '' unless defined $result1 && $result1 ne '';
+    return '' unless $result1; # undef, 0 or ""
     my $result2 = $this->expandPath($theRoot, $tail);
-    return '' unless defined $result2 && $result2 ne '';
+    return '' unless $result2; # undef, 0 or ""
     return $result1 . $result2;
   }
   if ($thePath =~ /^d2n\((.*)\)$/) {
@@ -405,7 +405,7 @@ sub expandPath {
     my $first = $1;
     my $tail = $2;
     my $result = $this->expandPath($theRoot, $first);
-    return $result if (defined $result && $result ne '');
+    return $result if $result; # undef, 0 or ""
     return $this->expandPath($theRoot, $tail);
   }
   if ($thePath =~ m/^(\w+)(.*)$/o) {

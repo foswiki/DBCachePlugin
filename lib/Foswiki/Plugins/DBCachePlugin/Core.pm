@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2018 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2019 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -250,7 +250,7 @@ sub handleDBQUERY {
   unless ($theSkip =~ /^[\d]+$/) {
     $theSkip = _expandVariables($theSkip, $thisWeb, $thisTopic);
     $theSkip = _expandFormatTokens($theSkip);
-    $theSkip = Foswiki::Func::expandCommonVariables($theSkip, $thisTopic, $thisWeb);
+    $theSkip = Foswiki::Func::expandCommonVariables($theSkip, $thisTopic, $thisWeb) if $theSkip =~ /%/;
   }
   $theSkip =~ s/[^-\d]//g;
   $theSkip = 0 if $theSkip eq '';
@@ -260,7 +260,7 @@ sub handleDBQUERY {
   unless ($theLimit =~ /^[\d]+$/) {
     $theLimit = _expandVariables($theLimit, $thisWeb, $thisTopic);
     $theLimit = _expandFormatTokens($theLimit);
-    $theLimit = Foswiki::Func::expandCommonVariables($theLimit, $thisTopic, $thisWeb);
+    $theLimit = Foswiki::Func::expandCommonVariables($theLimit, $thisTopic, $thisWeb) if $theLimit =~ /%/;
   }
   $theLimit =~ s/[^\d]//g;
 
@@ -587,7 +587,7 @@ sub handleDBCALL {
   # expand
   my $context = Foswiki::Func::getContext();
   $context->{insideInclude} = 1;
-  $sectionText = Foswiki::Func::expandCommonVariables($sectionText, $thisTopic, $thisWeb);
+  $sectionText = Foswiki::Func::expandCommonVariables($sectionText, $thisTopic, $thisWeb) if $sectionText =~ /%/;
   delete $context->{insideInclude};
 
   # fix local linx
@@ -635,6 +635,7 @@ sub handleDBSTATS {
   my $theExclude = $params->{exclude};
   my $theInclude = $params->{include};
   my $theDateFormat = $params->{dateformat} // $Foswiki::cfg{DefaultDateFormat};
+  my $theDateLanguage = $params->{datelanguage} // $session->i18n->language() // 'en';
   my $theCase = Foswiki::Func::isTrue($params->{casesensitive}, 0);
   $theLimit =~ s/[^\d]//g;
 
@@ -702,9 +703,9 @@ sub handleDBSTATS {
       if (defined $command) {
         $command = Foswiki::Func::decodeFormatTokens($command);
         $command =~ s/\$value/$fieldValue/g;
-        $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $thisWeb);
+        $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $thisWeb) if $command =~ /%/;
       } else {
-        $fieldValue = _formatTime($fieldValue, $theDateFormat) if $field =~ /created(ate)?|modified|publishdate/;
+        $fieldValue = _formatTime($fieldValue, $theDateFormat, {language => $theDateLanguage} ) if $field =~ /created(ate)?|modified|publishdate/;
       }
       #_writeDebug("reading field $field found $fieldValue");
 
@@ -1322,13 +1323,13 @@ sub _expandVariables {
 ###############################################################################
 # fault tolerant wrapper
 sub _formatTime {
-  my ($string, $format) = @_;
+  my ($string, $format, $params) = @_;
 
   return "" if $string eq "" || $string eq "0";
   my $epoch = Foswiki::Contrib::DBCacheContrib::parseDate($string);
-  return '???' unless defined($epoch) && $epoch != 0;
+  return "" unless defined($epoch) && $epoch != 0;
 
-  return Foswiki::Func::formatTime($epoch, $format);
+  return Foswiki::Func::formatTime($epoch, $format, undef, $params);
 }
 
 ###############################################################################
