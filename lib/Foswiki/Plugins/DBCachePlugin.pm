@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2019 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2020 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -25,8 +25,8 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '12.11';
-our $RELEASE = '2 May 2019';
+our $VERSION = '13.00';
+our $RELEASE = '15 Oct 2020';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
 
@@ -41,6 +41,14 @@ our @knownIndexTopicHandler = ();
 sub initPlugin {
 
   $core = undef;
+
+  Foswiki::Func::registerTagHandler('CREATEDATE', sub {
+    return getCore()->handleCREATEDATE(@_);
+  });
+
+  Foswiki::Func::registerTagHandler('CREATEAUTHOR', sub {
+    return getCore()->handleCREATEAUTHOR(@_);
+  });
 
   Foswiki::Func::registerTagHandler('DBQUERY', sub {
     return getCore()->handleDBQUERY(@_);

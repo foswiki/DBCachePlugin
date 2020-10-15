@@ -16,3 +16,5 @@ $Foswiki::cfg{DBCachePlugin}{MemoryCache} = 1;
 # enable the UseUploadHandler flag to use the afterUploadHandler in favor to the depreated
 # counterpart. Leave this to false on newer engines or when you are unsure what this is all about.
 $Foswiki::cfg{DBCachePlugin}{UseUploadHandler} = 0;
+
+1;

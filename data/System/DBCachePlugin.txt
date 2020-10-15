@@ -102,7 +102,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 | =include="..."= | pattern each found topic name must match to be considered a hit; can also be a comma separated list of topics |
 | =exclude="..."= | pattern each found topic name must not match to be considered a hit; can also be a comma separated list of topics |
 | =sort="..."= | specifies the sorting of hits; this can be a comma separted list of attributes to specify more complicated sortings; special value "random"; defaults to "name" |
-| =reverse="..."= | specify if hits should be sorted in reverse order; defaults to "off" |
+| =reverse="..."= | specify if hits should be sorted in reverse order; revers order can be specified for the complete result using "on", or by formfield; multiple formfields may be specified comma separated, defaults to "off" |
 | =limit="..."= | maximum number of topics to include in the hit set |
 | =warn="on,off"= | enable/suppress error warnings |
 | =skip="..."= | number of topics to skip while constructing the hit set; defaults to "0" |
@@ -128,10 +128,12 @@ Following variables are expanded in format strings:
      (see the [[%SYSTEMWEB%.VarGMTIME][GMTIME]] documentation).
    * $expand(&lt;formfield-accessor>): return the formfield pointed to by the 
       &lt;formfield-accessor>
+   * $displayValue('&lt;formfield-name'): the display value of the given formfield; this may differ from the value returned by =$formfield()= when it has been defined as a "value-mapped" formfield using ="+values" 
    * $html(&lt;formfield-accessor>): same as =$expand()= but expands macros and TML markup
    * $d2n(&lt;formfield-accessor>): converts a date formfield's value to epoch seconds
    * $rss(...): encode entities so that the text can be included in an rss feed
    * $encode(...): encode entities so that the text can be included in HTML input form elements
+   * $quotes(...): encode quotes in a string
    * $flatten(...): remove any special markup producing a flattened text representation
    * $trunc(...,length): truncate a string to the given length
    * $uc(...): converts a string to upper case
@@ -340,6 +342,24 @@ previous and next blog entry in a list of postings ordered by created date:
 
 (from Foswiki:Extensions/BlogPlugin)
 
+---+++ CREATEDATE
+
+This macro returns the date a topic was created. This is basically equivalent to =%!QUERY{"info.date" rev="1"}%=
+though 10x faster.
+
+| *Parameters* | *Description*  | *Default* |
+| =topic="..."=, ="..."= | the topic to read | current topic |
+| =format="..."= | format string | _default date format_ |
+
+---+++ CREATEAUTHOR
+
+This macro returns the author information of the first revision of a topic. This is basically equivalent to =%!QUERY{"info.author" rev="1"}%=
+though 10x faster.
+
+| *Parameters* | *Description*  | *Default* |
+| =topic="..."=, ="..."= | the topic to read | current topic |
+| =format="..."= | format string, may hold variables =$username=, =$wikiname= and =$wikiusername= | =$wikiname= |
+
 ---++ Syntax of search queries
 A search query is a boolean expression on fields of a topic. (Tip: use %DBDUMP to explore the available fields).
 
@@ -473,6 +493,9 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  15 Oct 2020: | added macros =%CREATEDATE= and =%CREATEAUTHOR=; \
+                  added multi-dimensional sorting and reversing; \
+                  added =$quote()= and =$displayValue()= |
 |  02 May 2019: | performance improvements |
 |  26 Nov 2018: | added =process= parameter to =DBSTATS= to post-process field values before generating statistics; \
                   return the empty string instead of ??? when parsing an empty or zero time value; \
@@ -630,7 +653,7 @@ automatically from there on.
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/DBCachePlugin"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2019, Michael Daum http://michaeldaumconsulting.com"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2020, Michael Daum"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="Foswiki:Support/%25TOPIC%25"}%

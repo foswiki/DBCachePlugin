@@ -29,6 +29,8 @@ use Foswiki::Attrs ();
 use Foswiki::Time ();
 use Foswiki::Plugins ();
 use Foswiki::Form ();
+use Foswiki::Func ();
+use Error qw(:try);
 
 use constant TRACE => 0; # toggle me
 
@@ -49,6 +51,7 @@ sub new {
 
   $this->{prevTopicCache} = ();
   $this->{nextTopicCache} = ();
+  $this->{webViewPermission} = ();
 
   return $this;
 }
@@ -126,7 +129,7 @@ sub onReload {
     my $archivist = $this->getArchivist();
 
     my @sections = ();
-    while ($text =~ s/%(?:START)?SECTION\{(.*?)\}%(.*?)%(?:STOP|END)SECTION\{[^}]*?"(.*?)"\}%//s) {
+    while ($text =~ s/%(?:START)?SECTION\{(.*?)\}%(.*?)%(?:STOP|END)SECTION\{[^}]*?"(.*?)"\s*\}%//s) {
       my $attrs = new Foswiki::Attrs($1);
       my $name = $attrs->{name} || $attrs->{_DEFAULT} || '';
       my $sectionText = $2;
@@ -135,9 +138,10 @@ sub onReload {
     }
     $obj->set('_sections', join(", ", @sections));
 
+    my $form = $obj->getForm();
+
     # get topic title
-    my $form = $obj->fastget('form');
-    $form = $obj->fastget($form) if $form;
+    my $session = $Foswiki::Plugins::SESSION;
 
     # 1. get from preferences
     my $topicTitle = $this->getPreference($obj, 'TOPICTITLE');
@@ -168,7 +172,6 @@ sub onReload {
     if ($form) {
       my $topicType = $form->fastget("TopicType");
       if ($topicType && $topicType =~ /\bTopicType\b/) {
-        my $session = $Foswiki::Plugins::SESSION;
         my $metaForm = Foswiki::Form->new($session, $this->{web}, $topic);
         my $field = $metaForm->getField("TopicType");
         if ($field) {
@@ -198,10 +201,7 @@ sub getFormField {
   my $topicObj = $this->fastget($theTopic);
   return '' unless $topicObj;
 
-  my $form = $topicObj->fastget('form');
-  return '' unless $form;
-
-  $form = $topicObj->fastget($form);
+  my $form = $topicObj->getForm();
   return '' unless $form;
 
   my $fieldName = $theFormField;
@@ -284,6 +284,8 @@ sub dbQuery {
   my $testObj;
   $testObj = new Foswiki::Contrib::DBCacheContrib::MemMap() if $theContext;
 
+  my $wikiName = Foswiki::Func::getWikiName();
+  my $isAdmin = Foswiki::Func::isAnAdmin();
   foreach my $topicName (@topicNames) {
     my $topicObj = $this->fastget($topicName);
     next unless $topicObj;    # never
@@ -291,7 +293,7 @@ sub dbQuery {
     if ($theContext) { # SMELL: experimental
       my $context = $topicObj->fastget($theContext);
       next unless $context;
-      my $topicViewAccess = $this->_hasViewAccess($topicName, $topicObj);
+      my $topicViewAccess = $isAdmin || $this->_hasViewAccess($topicName, $topicObj, $wikiName);
 
       foreach my $obj ($context->getValues()) {
         my $name = $obj->fastget("name");
@@ -313,7 +315,7 @@ sub dbQuery {
         }
       }
     } else {
-      if ((!$search || $search->matches($topicObj, {webDB=>$this})) && $this->_hasViewAccess($topicName, $topicObj)) {
+      if ((!$search || $search->matches($topicObj, {webDB=>$this})) && ($isAdmin || $this->_hasViewAccess($topicName, $topicObj, $wikiName))) {
         $hits->add($topicName, $topicObj);
       }
     }
@@ -323,21 +325,18 @@ sub dbQuery {
 }
 
 sub _hasViewAccess {
-  my ($this, $topic, $obj) = @_;
+  my ($this, $topic, $obj, $wikiName) = @_;
 
-  my $isAdmin = Foswiki::Func::isAnAdmin();
-  my $wikiName = Foswiki::Func::getWikiName();
-  my $webViewPermission = $isAdmin || Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, undef, $this->{web});
+  $wikiName //= Foswiki::Func::getWikiName();
+  my $webViewPermission = $this->_hasWebViewAccess($wikiName);
 
   my $topicHasPerms = 0;
-  unless ($isAdmin) {
-    my $prefs = $obj->fastget('preferences');
-    if (defined($prefs)) {
-      foreach my $key ($prefs->getKeys()) {
-        if ($key =~ /^(ALLOW|DENY)TOPIC/) {
-          $topicHasPerms = 1;
-          last;
-        }
+  my $prefs = $obj->fastget('preferences');
+  if (defined($prefs)) {
+    foreach my $key ($prefs->getKeys()) {
+      if ($key =~ /^(ALLOW|DENY)TOPIC/) {
+        $topicHasPerms = 1;
+        last;
       }
     }
   }
@@ -347,7 +346,19 @@ sub _hasViewAccess {
   # doing pluggable Permissions need to
   # work out howto abstract this concept - or to disable it (its worth about 400ms per topic in the set. (if you're not WikiAdmin))
   return
-    ($isAdmin || (!$topicHasPerms && $webViewPermission) || ($topicHasPerms && $this->checkAccessPermission('VIEW', $wikiName, $obj))) ? 1 : 0;
+    (!$topicHasPerms && $webViewPermission) || ($topicHasPerms && $this->checkAccessPermission('VIEW', $wikiName, $obj)) ? 1 : 0;
+}
+
+sub _hasWebViewAccess {
+  my ($this, $wikiName) = @_;
+
+  $wikiName //= Foswiki::Func::getWikiName();
+
+  unless (defined $this->{webViewPermission}{$wikiName}) {
+    $this->{webViewPermission}{$wikiName} = Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, undef, $this->{web})?1:0;
+  }
+
+  return $this->{webViewPermission}{$wikiName};
 }
 
 
@@ -355,7 +366,8 @@ sub _hasViewAccess {
 sub expandPath {
   my ($this, $theRoot, $thePath) = @_;
 
-  return '' if !defined($thePath) || !defined($theRoot) || $thePath eq '';
+  return "" unless defined($theRoot);
+  return $theRoot unless defined($thePath) && $thePath ne '';
 
   #print STDERR "DEBUG: expandPath($theRoot, $thePath)\n";
 
@@ -365,6 +377,7 @@ sub expandPath {
     my $author = $info->fastget('author');
     return Foswiki::Func::getWikiName($author);
   }
+
   if ($thePath =~ /^(.*?) and (.*)$/) {
     my $first = $1;
     my $tail = $2;
@@ -374,33 +387,50 @@ sub expandPath {
     return '' unless $result2; # undef, 0 or ""
     return $result1 . $result2;
   }
+
   if ($thePath =~ /^d2n\((.*)\)$/) {
     my $result = $this->expandPath($theRoot, $1);
     return 0 unless defined $result;
     return $result if $result =~ /^[\+\-]?\d+$/;
     return Foswiki::Time::parseTime($result);
   }
+
   if ($thePath =~ /^uc\((.*)\)$/) {
     my $result = $this->expandPath($theRoot, $1);
     return uc($result);
   }
+
   if ($thePath =~ /^lc\((.*)\)$/) {
     my $result = $this->expandPath($theRoot, $1);
     return lc($result);
   }
+
+  if ($thePath =~ /^displayValue\((.*)\)$/) {
+    my $result = $this->expandPath($theRoot, $1);
+    return $theRoot->getDisplayValue($result);
+  }
+
   if ($thePath =~ /^length\((.*)\)$/) {
     my $result = $this->expandPath($theRoot, $1);
-    return length($result);
+    if (ref($result) && UNIVERSAL::can($result, "size")) {
+      $result = $result->size();
+    } else {
+      $result = length($result);
+    }
+    return $result;
   }
+
   if ($thePath =~ /^'([^']*)'$/) {
 
     #print STDERR "DEBUG: here1 - result=$1\n";
     return $1;
   }
+
   if ($thePath =~ /^[+-]?\d+(\.\d+)?$/) {
     #print STDERR "DEBUG: here2 - result=$thePath\n";
     return $thePath;
   }
+
   if ($thePath =~ /^(.*?) or (.*)$/) {
     my $first = $1;
     my $tail = $2;
@@ -408,18 +438,18 @@ sub expandPath {
     return $result if $result; # undef, 0 or ""
     return $this->expandPath($theRoot, $tail);
   }
+
   if ($thePath =~ m/^(\w+)(.*)$/o) {
     my $first = $1;
     my $tail = $2;
     $tail =~ s/^\.//;
     my $root;
-    my $form = $theRoot->fastget('form');
-    $form = $theRoot->fastget($form) if $form;
+    my $form = $theRoot->getForm();
     $root = $form->fastget($first) if $form;
     $root = $theRoot->fastget($first) unless defined $root;
-    return $this->expandPath($root, $tail) if ref($root);
     return '' unless defined $root;
-    return $root if $first eq 'text';    # not url encoded
+    return $this->expandPath($root, $tail) if ref($root);
+    return $root if $first eq 'text' || !defined($tail);    # not url encoded
     my $field = urlDecode($root);
  
     #print STDERR "DEBUG: here3 - result=$field\n";
@@ -458,7 +488,7 @@ sub expandPath {
   }
 
   if ($thePath =~ /^%/) {
-    $thePath = &Foswiki::Func::expandCommonVariables($thePath, '', $this->{web});
+    $thePath = Foswiki::Func::expandCommonVariables($thePath, '', $this->{web});
     $thePath =~ s/^%/<nop>%/o;
     return $this->expandPath($theRoot, $thePath);
   }
@@ -564,8 +594,9 @@ sub getACL {
 
   # Dump the users web specifier if userweb
   my @list = grep { /\S/ } map {
-      s/^($Foswiki::cfg{UsersWebName}|%USERSWEB%|%MAINWEB%)\.//;
-      $_
+      my $tmp = $_;
+      $tmp =~ s/^($Foswiki::cfg{UsersWebName}|%USERSWEB%|%MAINWEB%)\.//;
+      $tmp;
   } split( /[,\s]+/, $text );
 
 #print STDERR "getACL($mode): ".join(', ', @list)."\n";

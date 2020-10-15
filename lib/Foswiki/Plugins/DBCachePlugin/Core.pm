@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2019 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2020 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -23,6 +23,7 @@ our %webDB;
 our $TranslationToken = "\0";
 
 use constant TRACE => 0;    # toggle me
+use constant ENABLE_WEBDB_FEATURE => 0; # CAUTION: this is disabled by default for performance reasons when loading preferences from lots of webs 
 
 use Foswiki::Contrib::DBCacheContrib ();
 use Foswiki::Contrib::DBCacheContrib::Search ();
@@ -80,7 +81,7 @@ sub new {
 sub afterSaveHandler {
   my ($this, $web, $topic, $newWeb, $newTopic, $attachment, $newAttachment) = @_;
 
-  #_writeDebug("called afterSaveHandler($web, $topic)");
+  _writeDebug("called afterSaveHandler($web, $topic)");
 
   $newWeb ||= $web;
   $newTopic ||= $topic;
@@ -108,7 +109,6 @@ sub afterSaveHandler {
     if ($topic ne $newTopic) {
       $db->loadTopic($newWeb, $newTopic);
     }
-
   }
 
   # set the internal loadTime counter to the latest modification
@@ -179,6 +179,55 @@ sub handleNeighbours {
   $result =~ s/\$dollar/\$/g;
 
   return $result;
+}
+
+###############################################################################
+sub handleCREATEAUTHOR {
+  my ($this, $session, $params, $topic, $web) = @_;
+
+  my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
+  ($web, $topic) = Foswiki::Func::normalizeWebTopicName($params->{web} || $web, $params->{_DEFAULT} // $params->{topic} || $topic);
+
+  my $db = $this->getDB($web);
+  return $doWarnings ? _inlineError("web not found") : "" unless $db;
+
+  my $obj = $db->fastget($topic);
+  return $doWarnings ? _inlineError("topic not found") : "" unless $obj;
+
+  my $wikiName = $obj->fastget("createauthor");
+  my $wikiUserName = $Foswiki::cfg{UsersWebName}.'.'.$wikiName;
+  my $userName = Foswiki::Func::wikiToUserName($wikiName);
+
+  my $format = $params->{format} // '$wikiname';
+
+  my $result = _expandVariables($format, $web, $topic, 
+    username => $userName,
+    wikiname => $wikiName,
+    wikiusername => $wikiUserName,
+  );
+
+  return  _expandFormatTokens($result);
+}
+
+###############################################################################
+sub handleCREATEDATE {
+  my ($this, $session, $params, $topic, $web) = @_;
+
+  my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
+  ($web, $topic) = Foswiki::Func::normalizeWebTopicName($params->{web} || $web, $params->{_DEFAULT} // $params->{topic} || $topic);
+
+  my $db = $this->getDB($web);
+  return $doWarnings ? _inlineError("web not found") : "" unless $db;
+
+  my $obj = $db->fastget($topic);
+  return $doWarnings ? _inlineError("topic not found") : "" unless $obj;
+
+  my $createDate = $obj->fastget("createdate");
+  my $format = $params->{format} // $Foswiki::cfg{DefaultDateFormat};
+
+  my $result =  _formatTime($createDate, $format, $params);
+
+  return  _expandFormatTokens($result);
 }
 
 ###############################################################################
@@ -274,12 +323,12 @@ sub handleDBQUERY {
       next unless $theDB;
 
       # flag the current web we evaluate this query in, used by web-specific operators
-      $this->{currentWeb} = $web;
+      $this->currentWeb($web);
 
       # collect hit set
       $hits = $theDB->dbQuery($theSearch, \@topicNames, $theSort, $theReverse, $theInclude, $theExclude, $hits, $theContext);
 
-      $this->{currentWeb} = undef;
+      $this->currentWeb("");
     }
   }
   catch Error::Simple with {
@@ -290,7 +339,7 @@ sub handleDBQUERY {
     return $doWarnings ? _inlineError($error) : "";
   }
   if (!$hits || $hits->count <= $theSkip) {
-    return $theNullFormat if defined $theNullFormat;
+    return _expandFormatTokens($theNullFormat) if defined $theNullFormat;
     return "" if $theHideNull;
   }
 
@@ -301,12 +350,10 @@ sub handleDBQUERY {
     my $lastWeb = '';
     my $theDB;
     while (my $obj = $hits->next) {
-      #_writeDebug("topicName=$topicName");
       $index++;
 
       my $topicName = $obj->fastget("topic");
       my $web = $obj->fastget("web");
-      $web =~ s/\//./g;
       $theDB = $this->getDB($web) if !$theDB || $lastWeb ne $web;
       $lastWeb = $web;
       unless ($theWeb) {
@@ -320,19 +367,24 @@ sub handleDBQUERY {
         my $temp = $theDB->getFormField($topicName, $1);
         $temp =~ s#\)#${TranslationToken}#g;
         $temp =~ s#\r?\n#$theNewline#gs if defined $theNewline;
-        $temp/geo;
+        $temp/ge;
       $line =~ s/\$expand\((.*?)\)/
         my $temp = $1;
         $temp = $theDB->expandPath($obj, $temp);
         $temp =~ s#\)#${TranslationToken}#g;
-        $temp/geo;
+        $temp/ge;
+      $line =~ s/\$displayValue\((.*?)\)/
+        my $temp = $1;
+        $temp = $obj->getDisplayValue($temp) \/\/ '';
+        $temp =~ s#\)#${TranslationToken}#g;
+        $temp/ge;
       $line =~ s/\$html\((.*?)\)/
         my $temp = $1;
         $temp = $theDB->expandPath($obj, $temp);
         $temp =~ s#\)#${TranslationToken}#g;
         $temp = Foswiki::Func::expandCommonVariables($temp, $topicName, $web);
         $temp = Foswiki::Func::renderText($temp, $web, $topicName);
-        $temp/geo;
+        $temp/ge;
       $line =~ s/\$d2n\((.*?)\)/Foswiki::Contrib::DBCacheContrib::parseDate($theDB->expandPath($obj, $1))||0/ge;
       $line =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($obj, $1), $2)/ge;    # single quoted
       $line =~ s/\$topic/$topicName/g;
@@ -341,6 +393,16 @@ sub handleDBQUERY {
       $line =~ s/\$flatten\((.*?)\)/_flatten($1, $web, $thisTopic)/ges;
       $line =~ s/\$rss\((.*?)\)/_rss($1, $web, $thisTopic)/ges;
       $line =~ s/\$translate\((.*?)\)/_translate($1, $theWeb, $theTopic)/ges;
+      $line =~ s/\$length\((.*?)\)/
+        my $temp = $1;
+        $temp = $theDB->expandPath($obj, $temp);
+        if (ref($temp) && UNIVERSAL::can($temp, "size")) {
+          $temp = $temp->size();
+        } else {
+          $temp = length($temp);
+        }
+        $temp;
+      /ge;
 
       $line =~ s/${TranslationToken}/)/g;
       push @result, $line;
@@ -370,7 +432,7 @@ sub findTopicMethod {
 
   #_writeDebug("called findTopicMethod($theWeb, $theTopic, $theObject)");
 
-  return undef unless $theObject;
+  return unless $theObject;
 
   my ($thisWeb, $thisObject) = Foswiki::Func::normalizeWebTopicName($theWeb, $theObject);
 
@@ -386,20 +448,14 @@ sub findTopicMethod {
   #_writeDebug("1");
 
   my $topicObj = $baseDB->fastget($thisObject);
-  return undef unless $topicObj;
+  return unless $topicObj;
 
   #_writeDebug("2");
 
-  my $form = $topicObj->fastget('form');
-  return undef unless $form;
+  my $formObj = $topicObj->getForm();
+  return unless $formObj;
 
-  #_writeDebug("3");
-
-  my $formObj = $topicObj->fastget($form);
-  return undef unless $formObj;
-
-  $form = $formObj->fastget("name");
-  my ($formWeb, $formTopic) = Foswiki::Func::normalizeWebTopicName($thisWeb, $form);
+  my ($formWeb, $formTopic) = Foswiki::Func::normalizeWebTopicName($thisWeb, $formObj->fastget("name"));
   #_writeDebug("formWeb=$formWeb, formTopic=$formTopic");
 
   my $formDB = $this->getDB($formWeb);
@@ -412,7 +468,7 @@ sub findTopicMethod {
 
   # get type information on this object
   my $topicTypes = $formObj->fastget('TopicType');
-  return undef unless $topicTypes;
+  return unless $topicTypes;
 
   #_writeDebug("topicTypes=$topicTypes");
 
@@ -429,12 +485,7 @@ sub findTopicMethod {
 
     #_writeDebug("2");
 
-    $form = $topicTypeObj->fastget('form');
-    next unless $form;
-
-    #_writeDebug("3");
-
-    $formObj = $topicTypeObj->fastget($form);
+    $formObj = $topicTypeObj->getForm();
     next unless $formObj;
 
     #_writeDebug("4");
@@ -537,7 +588,8 @@ sub handleDBCALL {
   }
 
   # get section
-  my $sectionText = $topicObj->fastget("_section$section") if $topicObj;
+  my $sectionText;
+  $sectionText = $topicObj->fastget("_section$section") if $topicObj;
   if (!defined $sectionText) {
     return $doWarnings ? _inlineError("ERROR: DBCALL can't find section '$section' in topic '$thisWeb.$thisTopic'") : "";
   }
@@ -689,16 +741,10 @@ sub handleDBSTATS {
     my $modified = $topicObj->get('info.date');
     my $publishDate = $topicObj->get('publishdate') || 0;
     foreach my $field (split(/\s*,\s*/, $theFields)) {    # loop over all fields
+
       my $fieldValue = $topicObj->fastget($field);
-      if (!defined($fieldValue) || ref($fieldValue)) {
-        my $topicForm = $topicObj->fastget('form');
-        #_writeDebug("found form $topicForm");
-        if ($topicForm) {
-          $topicForm = $topicObj->fastget($topicForm);
-          $fieldValue = $topicForm->fastget($field);
-        }
-      }
-      next unless $fieldValue;                            # unless present
+      $fieldValue = $topicObj->getFieldValue($field) if !defined($fieldValue) || ref($fieldValue);
+
       my $command = $params->{process} // $params->{"process_".$field};
       if (defined $command) {
         $command = Foswiki::Func::decodeFormatTokens($command);
@@ -708,6 +754,7 @@ sub handleDBSTATS {
         $fieldValue = _formatTime($fieldValue, $theDateFormat, {language => $theDateLanguage} ) if $field =~ /created(ate)?|modified|publishdate/;
       }
       #_writeDebug("reading field $field found $fieldValue");
+      next unless defined $fieldValue; 
 
       foreach my $item (split(/$theSplit/, $fieldValue)) {
         while ($item =~ /$thePattern/g) {                 # loop over all occurrences of the pattern
@@ -869,8 +916,9 @@ sub dbDump {
 
   my $session = $Foswiki::Plugins::SESSION;
 
+  my $wikiName = Foswiki::Func::getWikiName();
   return _inlineError("ERROR: access denied")
-    unless Foswiki::Func::checkAccessPermission("VIEW", $session->{user}, undef, $topic, $web);
+    unless Foswiki::Func::checkAccessPermission("VIEW", $wikiName, undef, $topic, $web);
 
   my $theDB = $this->getDB($web);
   return _inlineError("ERROR: DBDUMP can't find web '$web'") unless $theDB;
@@ -1015,12 +1063,12 @@ sub formatRecursive {
       my $temp = $theDB->getFormField($topicName, $1);
       $temp =~ s#\)#${TranslationToken}#g;
       $temp =~ s#\r?\n#$params->{newline}#gs if defined $params->{newline};
-      $temp/geo;
+      $temp/ge;
     $text =~ s/\$expand\((.*?)\)/
       my $temp = $theDB->expandPath($topicObj, $1);
       $temp =~ s#\)#${TranslationToken}#g;
-      $temp/geo;
-    $text =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($topicObj, $1), $2)/geo;    # single quoted
+      $temp/ge;
+    $text =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($topicObj, $1), $2)/ge;    # single quoted
 
     push @result, $text;
 
@@ -1074,6 +1122,8 @@ sub getWebKey {
 sub getDB {
   my ($this, $theWeb, $refresh) = @_;
 
+  $theWeb =~ s/\//./g;
+
   $refresh = $this->{doRefresh} unless defined $refresh;
   $refresh = 0 if $refresh && $this->{doneRefreshWeb}{$theWeb};
   $this->{doneRefreshWeb}{$theWeb} = 1;
@@ -1101,7 +1151,7 @@ sub getDB {
   if ($isModified || $refresh) {
     $db = $webDB{$webKey} = $this->newDB($theWeb);
     $db->load($refresh);
-    #_writeDebug("need to load again");
+    _writeDebug("need to load again");
 
     my $session = $Foswiki::Plugins::SESSION;
     my $baseWeb = $session->{webName};
@@ -1118,10 +1168,17 @@ sub getDB {
 sub newDB {
   my ($this, $web) = @_;
 
-  my $impl = Foswiki::Func::getPreferencesValue('WEBDB', $web)
-    || 'Foswiki::Plugins::DBCachePlugin::WebDB';
-  $impl =~ s/^\s+//g;
-  $impl =~ s/\s+$//g;
+  my $impl;
+
+  if (ENABLE_WEBDB_FEATURE) { 
+    $impl = Foswiki::Func::getPreferencesValue('WEBDB', $web)
+      || 'Foswiki::Plugins::DBCachePlugin::WebDB';
+
+    $impl =~ s/^\s+//g;
+    $impl =~ s/\s+$//g;
+  } else {
+    $impl = 'Foswiki::Plugins::DBCachePlugin::WebDB';
+  }
 
   #_writeDebug("loading new webdb for '$web'");
   return $impl->new($web);
@@ -1160,9 +1217,9 @@ sub fixInclude {
 
   # Must handle explicit [[]] before noautolink
   # '[[TopicName]]' to '[[Web.TopicName][TopicName]]'
-  $_[0] =~ s/\[\[([^\]]+)\]\]/$this->fixIncludeLink($thisWeb, $1)/geo;
+  $_[0] =~ s/\[\[([^\]]+)\]\]/$this->fixIncludeLink($thisWeb, $1)/ge;
   # '[[TopicName][...]]' to '[[Web.TopicName][...]]'
-  $_[0] =~ s/\[\[([^\]]+)\]\[([^\]]+)\]\]/$this->fixIncludeLink($thisWeb, $1, $2)/geo;
+  $_[0] =~ s/\[\[([^\]]+)\]\[([^\]]+)\]\]/$this->fixIncludeLink($thisWeb, $1, $2)/ge;
 
   $_[0] = _takeOutBlocks($_[0], 'noautolink', $removed);
 
@@ -1195,7 +1252,10 @@ sub fixIncludeLink {
 
 ###############################################################################
 sub currentWeb {
-  return $_[0]->{currentWeb};
+  my ($this, $val) = @_;
+
+  $this->{currentWeb} = $val if defined $val;
+  return $this->{currentWeb};
 }
 
 ###############################################################################
@@ -1299,6 +1359,7 @@ sub _expandFormatTokens {
   $text =~ s/\$nop//g;
   $text =~ s/\$n/\n/g;
   $text =~ s/\$encode\((.*?)\)/_entityEncode($1)/ges;
+  $text =~ s/\$quotes\((.*?)\)/_quotesEncode($1)/ges;
   $text =~ s/\$trunc\((.*?),\s*(\d+)\)/substr($1,0,$2)/ges;
   $text =~ s/\$lc\((.*?)\)/lc($1)/ge;
   $text =~ s/\$uc\((.*?)\)/uc($1)/ge;
@@ -1371,6 +1432,14 @@ sub _translate {
   $result //= $string;
 
   return $result;
+}
+
+###############################################################################
+sub _quotesEncode {
+  my $text = shift;
+
+  $text =~ s/\"/\\"/g;
+  return $text;
 }
 
 ###############################################################################

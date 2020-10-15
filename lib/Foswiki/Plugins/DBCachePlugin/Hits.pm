@@ -24,6 +24,7 @@ use Foswiki::Func ();
 use Foswiki::Time ();
 use Foswiki::Plugins::DBCachePlugin ();
 
+#use Data::Dump qw(dump);
 use Foswiki::Iterator ();
 our @ISA = ('Foswiki::Iterator');
 
@@ -32,21 +33,23 @@ sub new {
 
   my $this = bless({
       sorting => "off",
-      reverse => 0,
+      reverse => "",
       @_
     },
     $class
   );
 
-  $this->{reverse} = Foswiki::Func::isTrue($this->{reverse});
-
   # init internal vars
-  $this->{_objects} = {};
-  $this->{_isNumerical} = 1;
-  $this->{_index} = 0;
-  $this->{_count} = 0;
-  $this->{_sortPropOfObj} = {};
-  $this->{_sortIndex} = undef;
+  $this->{_position} = 0; # position within sort index while iterating
+  $this->{_count} = 0; # number of items in hit set
+  $this->{_objects} = {}; # hash of objects being sorted
+  $this->{_isNumerical} = {}; # hash of booleans indicating whether a property is numerical
+  $this->{_isReverse} = undef; # hash of booleans indicating whether a property is sorted in reverse
+  $this->{_propValue} = {}; # hashes of properties extracted from objects
+  $this->{_propNames} = undef; # list of properties 
+  $this->{_sortIndex} = undef; # computed sorting
+
+  #print STDERR "sorting=$this->{sorting}, reverse=$this->{reverse}\n";
 
   return $this;
 }
@@ -59,32 +62,58 @@ sub add {
   $key = $web . "." . $key if defined $web;
 
   $this->{_objects}{$key} = $obj;
+  $this->{_propNames} = [];
 
   # sort by name
   if ($this->{sorting} =~ /^(on|name)$/) {
-    $this->{_sortPropOfObj}{$key} = $name;
-    $this->{_isNumerical} = 0;
+    my $propName = $1;
+    $this->{_propValue}{$key} = {
+      $propName => $name
+    };
+    $this->{_isNumerical}{$propName} = 0;
+    push @{$this->{_propNames}}, $propName;
   }
 
   # sort by create date
-  elsif ($this->{sorting} =~ /^created/) {
-    $this->{_sortPropOfObj}{$key} = $obj->fastget('createdate');
+  elsif ($this->{sorting} =~ /^(created(ate)?)$/) {
+    my $propName = $1;
+    $this->{_propValue}{$key} = {
+      $propName => $obj->fastget('createdate')
+    };
+    $this->{_isNumerical}{$propName} = 1;
+    push @{$this->{_propNames}}, $propName;
   }
 
   # sort by date
-  elsif ($this->{sorting} =~ /^(modified|info\.date)/) {
+  elsif ($this->{sorting} =~ /^((modified|info\.date))$/) {
+    my $propName = $1;
     my $info = $obj->fastget('info');
-    $this->{_sortPropOfObj}{$key} = $info ? $info->fastget('date') : 0;
+    $this->{_propValue}{$key} = {
+      $propName => $info ? $info->fastget('date') : 0
+    };
+    $this->{_isNumerical}{$propName} = 1;
+    push @{$this->{_propNames}}, $propName;
   }
 
   # sort randomly
   elsif ($this->{sorting} =~ /^rand(om)?$/) {
-    $this->{_sortPropOfObj}{$key} = rand();
+    my $propName = $1;
+    $this->{_propValue}{$key} = {
+      $propName => rand()
+    };
+    push @{$this->{_propNames}}, $propName;
+    $this->{_isNumerical}{$propName} = 1;
+    push @{$this->{_propNames}}, $propName;
   }
 
   # sort by time added
-  elsif ($this->{sorting} =~ /^off$/i) {
-    $this->{_sortPropOfObj}{$key} = $this->{_count};
+  elsif ($this->{sorting} =~ /^(off)$/i) {
+    my $propName = $1;
+    $this->{_propValue}{$key} = {
+      $propName => $this->{_count}
+    };
+    $this->{_isNumerical}{$propName} = 1;
+    push @{$this->{_propNames}}, $propName;
   }
 
   # sort by property
@@ -97,27 +126,41 @@ sub add {
     $format =~ s/\$nop//g;
     $format =~ s/\$n/\n/g;
     $format =~ s/\$dollar/\$/g;
+    $format =~ s/^\s+//;
+    $format =~ s/\s+$//;
 
-    my @crits = ();
-    foreach my $item (split(/\s*,\s*/, $format)) {
-      push @crits, $item;
+    foreach my $prop (split(/\s*,\s*/, $format)) {
+      my $val = $this->_expandPath($obj, $prop) || '';
+      push @{$this->{_propNames}}, $prop;
+
+      $this->{_isNumerical}{$prop} //= 1;
+      if ($this->{_isNumerical}{$prop}) {
+
+	# try to interpret it as a date
+	unless ($val eq '' || $val =~ /^[+-]?\d+(\.\d+)?$/) {
+	  my $epoch = Foswiki::Time::parseTime($val);
+
+	  if (defined $epoch) {
+	    $val = $epoch;
+	  } else {
+	    $this->{_isNumerical}{$prop} = 0;
+	  }
+	}
+      }
+
+      my $rec = $this->{_propValue}{$key} || {};
+      $rec->{$prop} = $val;
+      $this->{_propValue}{$key} = $rec;
+
+      #print STDERR "prop=$prop, val=$val, isNumerical=$this->{_isNumerical}{$prop}, key=$key\n";
     }
+  }
 
-    my $path = join(" and ", @crits);
-    my $val = $this->_expandPath($obj, $path) || '';
-
-    if ($this->{_isNumerical} && $val !~ /^[+-]?\d+(\.\d+)?$/) {
-      # try to interpret it as a date
-      my $epoch = Foswiki::Time::parseTime($val);
-      $val = $epoch if defined $epoch;
+  unless (defined $this->{_isReverse}) {
+    foreach my $prop (@{$this->{_propNames}}) {
+      $this->{_isReverse}{$prop} = (defined($this->{reverse}) && ($this->{reverse} =~ /\Q$prop\E/ || $this->{reverse} =~ /^(?:on|1|yes|true)$/)) ? 1:0;
+      #print STDERR "isReverse($prop)=$this->{_isReverse}{$prop}\n";
     }
-
-    $this->{_sortPropOfObj}{$key} = $val;
-
-    #print STDERR "key=$key, path=$path, sortProp=".$this->{_sortPropOfObj}{$key}."\n";
-
-    $this->{_isNumerical} = 0
-      if $this->{_isNumerical} && $this->{_sortPropOfObj}{$key} && !($this->{_sortPropOfObj}{$key} =~ /^[+-]?\d+(\.\d+)?$/);
   }
 
   $this->{_count}++;
@@ -146,22 +189,51 @@ sub init {
 
   my @keys = keys %{$this->{_objects}};
 
-  my $props = $this->{_sortPropOfObj};
+  #print STDERR "propVals=".dump($this->{_propValue})."\n";
 
-  if (scalar(@keys) > 1) {
-    if ($this->{_isNumerical}) {
-      @keys =
-        sort { ($props->{$a} || 0) <=> ($props->{$b} || 0) || $a cmp $b } @keys;
-    } else {
-      @keys =
-        sort { $props->{$a} cmp $props->{$b} || $a cmp $b } @keys;
-    }
-    @keys = reverse @keys if $this->{reverse};
-  }
+  @keys = sort {$this->compare($a, $b)} @keys if scalar(@keys) > 1;
 
   $this->{_sortIndex} = \@keys;
 
   return;
+}
+
+sub compare {
+  my ($this, $a, $b, $index) = @_;
+
+  $index ||= 0;
+  my $prop = $this->{_propNames}[$index];
+  return 0 unless defined $prop;
+
+  my $valA = $this->{_propValue}{$a}{"$prop"};
+  my $valB = $this->{_propValue}{$b}{"$prop"};
+
+  #print STDERR "prop=$prop, isNumerical=$this->{_isNumerical}{$prop}, isReverse=$this->{_isReverse}{$prop}\n";
+  my $result;
+  if ($this->{_isNumerical}{$prop}) {
+    # sort undefined values to the end
+    if ($this->{_isReverse}{$prop}) {
+      $valA = 0 if !defined($valA) || $valA eq ''; # a large int
+      $valB = 0 if !defined($valB) || $valB eq '';
+      $result = $valB <=> $valA;
+    } else {
+      $valA = 90071992547409920 if !defined($valA) || $valA eq ''; # a large int
+      $valB = 90071992547409920 if !defined($valB) || $valB eq '';
+      $result = $valA <=> $valB;
+    }
+  } else {
+    $valA //= '';
+    $valB //= '';
+    if ($this->{_isReverse}{$prop}) {
+      $result = $valB cmp $valA;
+    } else {
+      $result = $valA cmp $valB;
+    }
+  }
+
+  #print STDERR "a=$a, b=$b, valA=$valA, valB=$valB, prop=$prop, result=$result\n";
+
+  return $result == 0 ? $this->compare($a, $b, $index+1): $result;
 }
 
 sub count {
@@ -174,21 +246,21 @@ sub count {
 sub hasNext {
   my $this = shift;
 
-  return $this->{_index} < $this->{_count} ? 1 : 0;
+  return $this->{_position} < $this->{_count} ? 1 : 0;
 }
 
 sub skip {
   my ($this, $num) = @_;
 
-  $this->{_index} += $num;
+  $this->{_position} += $num;
 
-  if ($this->{_index} < 0) {
-    $this->{_index} = 0;
-  } elsif ($this->{_index} > $this->{_count}) {
-    $this->{_index} = $this->{_count};
+  if ($this->{_position} < 0) {
+    $this->{_position} = 0;
+  } elsif ($this->{_position} > $this->{_count}) {
+    $this->{_position} = $this->{_count};
   }
 
-  return $this->{_index};
+  return $this->{_position};
 }
 
 sub next {
@@ -198,7 +270,7 @@ sub next {
 
   return unless $this->hasNext;
 
-  my $key = $this->{_sortIndex}[$this->{_index}++];
+  my $key = $this->{_sortIndex}[$this->{_position}++];
 
   return unless $key;
   return $this->{_objects}{$key};
@@ -207,8 +279,7 @@ sub next {
 sub reset {
   my $this = shift;
 
-  $this->{_index} = 0;
-  $this->{_sortIndex} = undef;
+  $this->{_position} = 0;
 
   return 1;
 }
