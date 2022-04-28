@@ -407,7 +407,8 @@ sub handleDBQUERY {
       $line =~ s/${TranslationToken}/)/g;
       push @result, $line;
 
-      $Foswiki::Plugins::DBCachePlugin::addDependency->($web, $topicName);
+      # Disabled for performance reasons
+      #$Foswiki::Plugins::DBCachePlugin::addDependency->($web, $topicName);
 
       last if $index == ($theLimit || 0) + $theSkip;
     }
@@ -537,10 +538,10 @@ sub handleDBCALL {
 
   # find the actual implementation
   if ($theObject) {
+    $params->{OBJECT} = $theObject;
     my ($methodWeb, $methodTopic) = $this->findTopicMethod($session, $thisWeb, $thisTopic, $theObject);
     if (defined $methodWeb) {
       #_writeDebug("found impl at $methodWeb.$methodTopic");
-      $params->{OBJECT} = $theObject;
       $thisWeb = $methodWeb;
       $thisTopic = $methodTopic;
     } else {
@@ -548,13 +549,13 @@ sub handleDBCALL {
       #_writeDebug("last resort check for Applications.$thisTopic");
       my $appDB = $this->getDB('Applications');
       if ($appDB && $appDB->fastget($thisTopic)) {
-        $params->{OBJECT} = $theObject;
         $thisWeb = 'Applications';
       }
     }
   }
 
-  $Foswiki::Plugins::DBCachePlugin::addDependency->($thisWeb, $thisTopic);
+  # Disabled for performance reasons
+  #$Foswiki::Plugins::DBCachePlugin::addDependency->($thisWeb, $thisTopic);
 
   # remember args for the key before mangling the params
   my $args = $params->stringify();
@@ -621,13 +622,12 @@ sub handleDBCALL {
   }
 
   # prevent recursive calls
-  my $key = $thisWeb . '.' . $thisTopic;
-  my $count = grep($key, keys %{$this->{dbcalls}});
-  $key .= $args;
-  if ($this->{dbcalls}{$key} || $count > 99) {
+  my $key = $thisWeb . '.' . $thisTopic . ' ' . $args;
+  my $count = $this->{dbcalls}{$key} // 0;
+  if ($count > 1) {
     return $doWarnings ? _inlineError("ERROR: DBCALL reached max recursion at '$thisWeb.$thisTopic'") : "";
   }
-  $this->{dbcalls}{$key} = 1;
+  $this->{dbcalls}{$key}++;
 
   # substitute variables
   $sectionText =~ s/%INCLUDINGWEB%/$theWeb/g;
@@ -744,17 +744,21 @@ sub handleDBSTATS {
 
       my $fieldValue = $topicObj->fastget($field);
       $fieldValue = $topicObj->getFieldValue($field) if !defined($fieldValue) || ref($fieldValue);
+      next unless defined $fieldValue; 
 
       my $command = $params->{process} // $params->{"process_".$field};
       if (defined $command) {
         $command = Foswiki::Func::decodeFormatTokens($command);
         $command =~ s/\$value/$fieldValue/g;
-        $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $thisWeb) if $command =~ /%/;
+        if ($command =~ /%/) {
+          $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $thisWeb);
+        } else {
+          $fieldValue = $command;
+        }
       } else {
         $fieldValue = _formatTime($fieldValue, $theDateFormat, {language => $theDateLanguage} ) if $field =~ /created(ate)?|modified|publishdate/;
       }
       #_writeDebug("reading field $field found $fieldValue");
-      next unless defined $fieldValue; 
 
       foreach my $item (split(/$theSplit/, $fieldValue)) {
         while ($item =~ /$thePattern/g) {                 # loop over all occurrences of the pattern
@@ -779,7 +783,7 @@ sub handleDBSTATS {
             $record->{modified_to} = $modified if $record->{modified_to} < $modified;
             $record->{publishdate_from} = $publishDate if defined $publishDate && $record->{publishdate_from} > $publishDate;
             $record->{publishdate_to} = $publishDate if defined $publishDate && $record->{publishdate_to} < $publishDate;
-            push @{$record->{topics}}, $topicName;
+            $record->{topics}{$topicName} = 1;
           } else {
             my %record = (
               count => 1,
@@ -790,7 +794,7 @@ sub handleDBSTATS {
               publishdate_from => $publishDate,
               publishdate_to => $publishDate,
               keyList => [$key1, $key2, $key3, $key4, $key5],
-              topics => [$topicName],
+              topics => {$topicName => 1},
             );
             $statistics{$key1} = \%record;
           }
@@ -854,7 +858,7 @@ sub handleDBSTATS {
       $thisWeb,
       $thisTopic,
       'web' => $thisWeb,
-      'topics' => join(', ', @{$record->{topics}}),
+      'topics' => join(', ', sort keys %{$record->{topics}}),
       'key' => $key,
       'key1' => $key1,
       'key2' => $key2,
@@ -895,7 +899,7 @@ sub handleDBDUMP {
   my $thisWeb = $params->{web} // $baseWeb;
   ($thisWeb, $thisTopic) = Foswiki::Func::normalizeWebTopicName($thisWeb, $thisTopic);
 
-  $Foswiki::Plugins::DBCachePlugin::addDependency->($thisWeb, $thisTopic);
+  #$Foswiki::Plugins::DBCachePlugin::addDependency->($thisWeb, $thisTopic);
 
   return $this->dbDump($thisWeb, $thisTopic);
 }
@@ -1109,7 +1113,7 @@ sub getWebKey {
   $web =~ s/\./\//g;
 
   unless (defined $this->{webKeys}{$web}) {
-    return unless Foswiki::Sandbox::validateWebName($web, 1);
+    return unless Foswiki::Sandbox::validateWebName($web);
     my $dir = $Foswiki::cfg{DataDir} . '/' . $web;
     return unless -d $dir;
     $this->{webKeys}{$web} = Cwd::fast_abs_path($dir);
@@ -1122,6 +1126,7 @@ sub getWebKey {
 sub getDB {
   my ($this, $theWeb, $refresh) = @_;
 
+  die "no web" unless defined $theWeb;
   $theWeb =~ s/\//./g;
 
   $refresh = $this->{doRefresh} unless defined $refresh;
@@ -1204,6 +1209,7 @@ sub finish {
   undef $this->{currentWeb};
   undef $this->{doRefresh};
   undef $this->{doneRefreshWeb};
+  undef %webDB unless $Foswiki::cfg{DBCachePlugin}{MemoryCache};
 }
 
 ###############################################################################
@@ -1446,7 +1452,7 @@ sub _quotesEncode {
 sub _entityEncode {
   my $text = shift;
 
-  $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>@[_\|])/'&#'.ord($1).';'/ge;
+  $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>\\@[_\|])/'&#'.ord($1).';'/ge;
 
   return $text;
 }

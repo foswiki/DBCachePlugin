@@ -175,7 +175,7 @@ Traverse topic-to-topic relations, like the intrinsic parent-child relation
 | =singlefooter="..."= | format string to be used when only one topic is found |
 | =hidenull="..."= | flag to indicate that an empty hit set should not be displayed |
 | =filter="..."= | search expression that is used in each recursion step; \
-                   the current topic name is inserted into the filter expression by replacing the ='$ref'= string; \
+                   the current topic name is inserted into the filter expression by replacing the ='$name'= string; \
                    the default filter is ='parent='$name'=; this will search for topics of which the current topic \
                    is a parent |
 | =sort="..."= | determines the sorting order of topics in each iteration step |
@@ -493,6 +493,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  28 Apr 2022: | fixed a couple of memory leaks; performance improvements; improved recursion detection in =%DBCALL= |
 |  15 Oct 2020: | added macros =%CREATEDATE= and =%CREATEAUTHOR=; \
                   added multi-dimensional sorting and reversing; \
                   added =$quote()= and =$displayValue()= |
@@ -653,7 +654,7 @@ automatically from there on.
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/DBCachePlugin"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2020, Michael Daum"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2022, Michael Daum"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="Foswiki:Support/%25TOPIC%25"}%

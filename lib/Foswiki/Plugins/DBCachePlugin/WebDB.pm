@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2019 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2021 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -281,42 +281,36 @@ sub dbQuery {
     reverse => $theReverse,
   );
 
-  my $testObj;
-  $testObj = new Foswiki::Contrib::DBCacheContrib::MemMap() if $theContext;
-
   my $wikiName = Foswiki::Func::getWikiName();
   my $isAdmin = Foswiki::Func::isAnAdmin();
   foreach my $topicName (@topicNames) {
     my $topicObj = $this->fastget($topicName);
     next unless $topicObj;    # never
+    next unless $isAdmin || $this->_hasViewAccess($topicName, $topicObj, $wikiName);
 
     if ($theContext) { # SMELL: experimental
       my $context = $topicObj->fastget($theContext);
       next unless $context;
-      my $topicViewAccess = $isAdmin || $this->_hasViewAccess($topicName, $topicObj, $wikiName);
 
       foreach my $obj ($context->getValues()) {
         my $name = $obj->fastget("name");
 
-        # init testObj
-        %{$testObj} = ();
-        while (my ($k, $v) = each %$obj) {
-          $testObj->{$k} = $v;
-        }
-        $testObj->set('web', $this->{web});
-        $testObj->set('topic', $topicName);
-        $testObj->set('topictitle', $topicObj->fastget("topictitle"));
-        $testObj->set('name', $name);
+        if (!$search || $search->matches($obj, {webDB=>$this})) {
 
-        if ((!$search || $search->matches($testObj, {webDB=>$this})) && $topicViewAccess) {
-          my $key = $this->{web}.'::'.$topicName.'::'.$name;
-          my $map = new Foswiki::Contrib::DBCacheContrib::MemMap( initial=> $testObj->{keys});
-          $hits->add($key, $map);
+          my %initial = map {$_ => $obj->fastget($_)} $obj->getKeys();
+          my $map = new Foswiki::Contrib::DBCacheContrib::MemMap( initial => \%initial);
+
+          # these might be present in the orig context object... not overwriting them, maybe have them somewhere else, e.g. _parent...?
+          $map->set('web', $this->{web}) unless $map->fastget('web');
+          $map->set('topic', $topicName) unless $map->fastget('topic');
+          $map->set('topictitle', $topicObj->fastget("topictitle")) unless $map->fastget("topictitle");
+
+          $hits->add($this->{web}, $topicName.'::'.$name, $map);
         }
       }
     } else {
-      if ((!$search || $search->matches($topicObj, {webDB=>$this})) && ($isAdmin || $this->_hasViewAccess($topicName, $topicObj, $wikiName))) {
-        $hits->add($topicName, $topicObj);
+      if (!$search || $search->matches($topicObj, {webDB=>$this})) {
+        $hits->add($this->{web}, $topicName, $topicObj);
       }
     }
   }
@@ -360,7 +354,6 @@ sub _hasWebViewAccess {
 
   return $this->{webViewPermission}{$wikiName};
 }
-
 
 ###############################################################################
 sub expandPath {
@@ -408,6 +401,11 @@ sub expandPath {
   if ($thePath =~ /^displayValue\((.*)\)$/) {
     my $result = $this->expandPath($theRoot, $1);
     return $theRoot->getDisplayValue($result);
+  }
+
+  if ($thePath =~ /^translate\((.*)\)$/) {
+    my $result = $this->expandPath($theRoot, $1);
+    return $theRoot->translate($result);
   }
 
   if ($thePath =~ /^length\((.*)\)$/) {

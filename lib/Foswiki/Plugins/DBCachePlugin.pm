@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2020 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -25,8 +25,8 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '13.00';
-our $RELEASE = '15 Oct 2020';
+our $VERSION = '13.10';
+our $RELEASE = '28 Apr 2022';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
 
@@ -39,8 +39,6 @@ our @knownIndexTopicHandler = ();
 ###############################################################################
 # plugin initializer
 sub initPlugin {
-
-  $core = undef;
 
   Foswiki::Func::registerTagHandler('CREATEDATE', sub {
     return getCore()->handleCREATEDATE(@_);
@@ -116,7 +114,7 @@ sub finishPlugin {
   @isEnabledRenameHandler = ();
 
   $core->finish if defined $core;
-  $core = undef;
+  undef $core;
 }
 
 ###############################################################################
@@ -135,9 +133,7 @@ sub restUpdateCache {
   my $session = shift;
 
   my $query = Foswiki::Func::getRequestObject();
-
   my $theWeb = $query->param('web');
-  my $theDebug = Foswiki::Func::isTrue($query->param('debug'), 0);
   my @webs;
 
   if ($theWeb) {
@@ -147,7 +143,7 @@ sub restUpdateCache {
   }
 
   foreach my $web (sort @webs) {
-    print STDERR "refreshing $web\n" if $theDebug;
+    #print STDERR "updating cache for $web\n";
     getDB($web, 2);
   }
 }

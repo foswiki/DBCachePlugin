@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2019 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -24,7 +24,6 @@ use Foswiki::Func ();
 use Foswiki::Time ();
 use Foswiki::Plugins::DBCachePlugin ();
 
-#use Data::Dump qw(dump);
 use Foswiki::Iterator ();
 our @ISA = ('Foswiki::Iterator');
 
@@ -54,11 +53,21 @@ sub new {
   return $this;
 }
 
+sub DESTROY {
+  my $this = shift;
+
+  undef $this->{_objects};
+  undef $this->{_isNumerical};
+  undef $this->{_isReverse};
+  undef $this->{_propValue};
+  undef $this->{_propNames};
+  undef $this->{_sortIndex};
+}
+
 sub add {
-  my ($this, $name, $obj) = @_;
+  my ($this, $web, $name, $obj) = @_;
 
   my $key = $name;
-  my $web = $obj->fastget("web");
   $key = $web . "." . $key if defined $web;
 
   $this->{_objects}{$key} = $obj;
@@ -130,7 +139,7 @@ sub add {
     $format =~ s/\s+$//;
 
     foreach my $prop (split(/\s*,\s*/, $format)) {
-      my $val = $this->_expandPath($obj, $prop) || '';
+      my $val = $this->_expandPath($web, $obj, $prop) || '';
       push @{$this->{_propNames}}, $prop;
 
       $this->{_isNumerical}{$prop} //= 1;
@@ -158,7 +167,7 @@ sub add {
 
   unless (defined $this->{_isReverse}) {
     foreach my $prop (@{$this->{_propNames}}) {
-      $this->{_isReverse}{$prop} = (defined($this->{reverse}) && ($this->{reverse} =~ /\Q$prop\E/ || $this->{reverse} =~ /^(?:on|1|yes|true)$/)) ? 1:0;
+      $this->{_isReverse}{$prop} = (defined($this->{reverse}) && $prop ne 'off' && ($this->{reverse} =~ /\Q$prop\E/ || $this->{reverse} =~ /^(?:on|1|yes|true)$/)) ? 1:0;
       #print STDERR "isReverse($prop)=$this->{_isReverse}{$prop}\n";
     }
   }
@@ -168,20 +177,18 @@ sub add {
   return $obj;
 }
 
-sub _getDB {
-  my ($this, $obj) = @_;
-
-  return Foswiki::Plugins::DBCachePlugin::getDB($obj->fastget("web"));
-}
-
 sub _expandPath {
-  my ($this, $obj, $path) = @_;
+  my ($this, $web, $obj, $path) = @_;
 
-  my $db = $this->_getDB($obj);
+  return "" unless defined $web;
+
+  my $db = Foswiki::Plugins::DBCachePlugin::getDB($web);
   return "" unless $db;
+
   return $db->expandPath($obj, $path);
 }
 
+#use Data::Dump qw(dump);
 sub init {
   my $this = shift;
 
