@@ -111,6 +111,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 | =remote="on,off"= | switch fixing !WikiWords in transcluded content; \
                      =on= means "don't touch, this is remote content" \
 		     defaults to "on" |
+| =context="..."= | name of a hash within a topic to use a root for any queries; for example this may be used to search over all =attachments= or any custom meta data such as =comments= as per Foswiki:Extensions/MetaCommentsPlugin |
 
 Following variables are expanded in format strings:
    * $percnt: % sign
@@ -493,6 +494,8 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  23 Aug 2022: | updated documentation |
+|  31 May 2022: | caching topic title of <nop>WebHome as webtitle; use !TopicTitlePlugin to fetch the topic title |
 |  28 Apr 2022: | fixed a couple of memory leaks; performance improvements; improved recursion detection in =%DBCALL= |
 |  15 Oct 2020: | added macros =%CREATEDATE= and =%CREATEAUTHOR=; \
                   added multi-dimensional sorting and reversing; \

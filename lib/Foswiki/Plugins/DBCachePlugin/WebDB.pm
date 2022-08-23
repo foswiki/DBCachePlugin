@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2021 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -25,6 +25,7 @@ use Foswiki::Contrib::DBCacheContrib::Search ();
 use Foswiki::Contrib::DBCacheContrib::MemMap ();
 use Foswiki::Plugins::DBCachePlugin ();
 use Foswiki::Plugins::DBCachePlugin::Hits ();
+use Foswiki::Plugins::TopicTitlePlugin ();
 use Foswiki::Attrs ();
 use Foswiki::Time ();
 use Foswiki::Plugins ();
@@ -70,12 +71,13 @@ sub load {
   writeDebug("called load($refresh, ".($web//'undef').", ".($topic//'undef')."), refresh=$refresh");
 
   if ($refresh && defined($web) && defined($topic)) {
+
     # refresh a single topic
     $this->remove($topic);
     $this->loadTopic($web, $topic);
   }
 
-  $this->SUPER::load($refresh);
+  return $this->SUPER::load($refresh);
 }
 
 ###############################################################################
@@ -84,8 +86,9 @@ sub load {
 sub onReload {
   my ($this, $topics) = @_;
 
-  writeDebug("called onReload()");
-  my $topicTitleField = Foswiki::Func::getPreferencesValue("TOPICTITLE_FIELD") || "TopicTitle";
+  writeDebug("called onReload() of web=$this->{web}");
+  my $session = $Foswiki::Plugins::SESSION;
+  my $topicTitleField;
 
   foreach my $topic (@$topics) {
     my $obj = $this->fastget($topic);
@@ -141,32 +144,45 @@ sub onReload {
     my $form = $obj->getForm();
 
     # get topic title
-    my $session = $Foswiki::Plugins::SESSION;
-
-    # 1. get from preferences
-    my $topicTitle = $this->getPreference($obj, 'TOPICTITLE');
-    #print STDERR "... getting topicTitle from preference: ".($topicTitle//'undef')."\n";
-
-    # 2. get from form
-    if ($form && (!defined $topicTitle || $topicTitle eq '')) {
-      $topicTitle = $form->fastget($topicTitleField) || '';
-      $topicTitle = urlDecode($topicTitle);
-      #print STDERR "... getting topicTitle from form: ".($topicTitle//'undef')."\n";
-    }
-
-    # 4. use topic name
-    unless ($topicTitle) {
-      if ($topic eq 'WebHome') {
-        $topicTitle = $this->{web};
-        $topicTitle =~ s/^.*[\.\/]//;
-      } else {
-        $topicTitle = $topic;
+    my $topicTitle;
+    if (0) {
+      # use internal mechanism
+      
+      unless (defined $topicTitleField) {
+        $topicTitleField = Foswiki::Func::getPreferencesValue("TOPICTITLE_FIELD") || "TopicTitle"
       }
-      #print STDERR "... getting topicTitle from topic name: ".($topicTitle//'undef')."\n";
+
+      # 1. get from preferences
+      $topicTitle = $this->getPreference($obj, 'TOPICTITLE');
+      #print STDERR "... getting topicTitle from preference: ".($topicTitle//'undef')."\n";
+
+      # 2. get from form
+      if ($form && (!defined $topicTitle || $topicTitle eq '')) {
+        $topicTitle = $form->fastget($topicTitleField) || '';
+        $topicTitle = urlDecode($topicTitle);
+        #print STDERR "... getting topicTitle from form: ".($topicTitle//'undef')."\n";
+      }
+
+      # 4. use topic name
+      unless ($topicTitle) {
+        if ($topic eq $Foswiki::cfg{HomeTopicName}) {
+          $topicTitle = $this->{web};
+          $topicTitle =~ s/^.*[\.\/]//;
+        } else {
+          $topicTitle = $topic;
+        }
+        #print STDERR "... getting topicTitle from topic name: ".($topicTitle//'undef')."\n";
+      }
+    } else {
+      # use TopicTitlePlugin
+      $topicTitle = Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $topic, undef, $meta);
     }
 
     #print STDERR "... found topicTitle: ".($topicTitle//'undef')."\n";
     $obj->set('topictitle', $topicTitle);
+
+    # get webtitle
+    $obj->set('webtitle', Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $Foswiki::cfg{HomeTopicName}));
 
     # This is to maintain the Inheritance formfield for the WikiWorkbenchContrib
     if ($form) {
@@ -188,10 +204,9 @@ sub onReload {
       &$sub($this, $obj, $this->{web}, $topic, $meta, $text);
       $seen{$sub} = 1;
     }
-
   }
 
-  #print STDERR "DEBUG: DBCachePlugin::WebDB - done onReload()\n";
+  writeDebug("done onReload()");
 }
 
 ###############################################################################
@@ -267,8 +282,8 @@ sub dbQuery {
   } else {
     @topicNames = $this->getKeys();
   }
-  @topicNames = grep(/$theInclude/, @topicNames) if $theInclude;
-  @topicNames = grep(!/$theExclude/, @topicNames) if $theExclude;
+  @topicNames = grep {/$theInclude/} @topicNames if $theInclude;
+  @topicNames = grep {!/$theExclude/} @topicNames if $theExclude;
 
   # parse & fetch
   my $search;

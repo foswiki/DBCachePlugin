@@ -25,8 +25,8 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '13.10';
-our $RELEASE = '28 Apr 2022';
+our $VERSION = '15.00';
+our $RELEASE = '21 Aug 2022';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
 
@@ -189,7 +189,7 @@ sub afterSaveHandler {
   # after "createweb" has finished.
 
   my $context = Foswiki::Func::getContext();
-  my $request = Foswiki::Func::getCgiQuery();
+  my $request = Foswiki::Func::getRequestObject();
   my $action = $request->param('action') || '';
   if ($context->{manage} && $action eq 'createweb') {
     #print STDERR "suppressing afterSaveHandler during createweb\n";

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2020 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -94,22 +94,14 @@ sub afterSaveHandler {
 
   $db->loadTopic($web, $topic);
 
-  # move/rename
-  if ($newWeb eq $web) {
-    if ($topic ne $newTopic) {
-      # handled by afterSaveHandler
-      #$db->loadTopic($web, $newTopic)
-    }
-  } else {    # crossing webs
+  if ($web ne $newWeb) {
     $db = $this->getDB($newWeb);
     unless ($db) {
+      print STDERR "WARNING: DBCachePlugin can't get cache for new web '$newWeb'\n";
       return;
     }
-    $db->loadTopic($newWeb, $topic);
-    if ($topic ne $newTopic) {
-      $db->loadTopic($newWeb, $newTopic);
-    }
   }
+  $db->loadTopic($newWeb, $newTopic) if $web ne $newWeb || $topic ne $newTopic;
 
   # set the internal loadTime counter to the latest modification
   # time on disk.
@@ -671,6 +663,7 @@ sub handleDBSTATS {
   my $baseTopic = $session->{topicName};
   my $theSearch = $params->{_DEFAULT} // $params->{search} // '';
   my $thisWeb = $params->{web} // $baseWeb;
+  my $theWebs = $params->{webs};
   my $thisTopic = $params->{topic} // $baseTopic;
   my $thisTopics = $params->{topics};
   my $thePattern = $params->{pattern} // '^(.*)$';
@@ -689,6 +682,10 @@ sub handleDBSTATS {
   my $theDateFormat = $params->{dateformat} // $Foswiki::cfg{DefaultDateFormat};
   my $theDateLanguage = $params->{datelanguage} // $session->i18n->language() // 'en';
   my $theCase = Foswiki::Func::isTrue($params->{casesensitive}, 0);
+  my $theKeyNumber = $params->{keynumber} // 1;
+
+  $theKeyNumber =~ s/[^\d]//g;
+  $theKeyNumber -= 1;
   $theLimit =~ s/[^\d]//g;
 
   $theFormat = '   * $key: $count' unless defined $theFormat;
@@ -701,6 +698,7 @@ sub handleDBSTATS {
 
   #_writeDebug("theSearch=$theSearch");
   #_writeDebug("thisWeb=$thisWeb");
+  #_writeDebug("theWebs=$theWebs");
   #_writeDebug("thePattern=$thePattern");
   #_writeDebug("theSplit=$theSplit");
   #_writeDebug("theHeader=$theHeader");
@@ -718,93 +716,108 @@ sub handleDBSTATS {
     }
   }
 
+  # get webs
+  my @webs;
+  if ($theWebs) {
+    if ($theWebs eq 'all') {
+      @webs = Foswiki::Func::getListOfWebs();
+    } else {
+      @webs = split(/\s*,\s*/, $theWebs);
+    }
+  } else {
+    push @webs, $thisWeb;
+  }
+  my $isMultipleWebs = scalar(@webs) > 1 ? 1 : 0;
+
   # compute statistics
   my $wikiName = Foswiki::Func::getWikiName();
   my %statistics = ();
-  my $theDB = $this->getDB($thisWeb);
-  return _inlineError("ERROR: DBSTATS can't find web '$thisWeb'") unless $theDB;
 
-  my @topicNames;
-  if ($thisTopics) {
-    @topicNames = split(/\s*,\s*/, $thisTopics);
-  } else {
-    @topicNames = $theDB->getKeys();
-  }
-  foreach my $topicName (@topicNames) {    # loop over all topics
-    my $topicObj = $theDB->fastget($topicName);
-    next unless $topicObj;
-    next if $search && !$search->matches($topicObj);    # that match the query
-    next unless $theDB->checkAccessPermission('VIEW', $wikiName, $topicObj);
+  foreach my $web (@webs) {
+    my $theDB = $this->getDB($web);
+    return _inlineError("ERROR: DBSTATS can't find web '$web'") unless $theDB;
 
-    #_writeDebug("found topic $topicName");
-    my $createDate = $topicObj->fastget('createdate');
-    my $modified = $topicObj->get('info.date');
-    my $publishDate = $topicObj->get('publishdate') || 0;
-    foreach my $field (split(/\s*,\s*/, $theFields)) {    # loop over all fields
+    my @topicNames;
+    if ($thisTopics) {
+      @topicNames = split(/\s*,\s*/, $thisTopics);
+    } else {
+      @topicNames = $theDB->getKeys();
+    }
+    foreach my $topicName (@topicNames) {    # loop over all topics
+      my $topicObj = $theDB->fastget($topicName);
+      next unless $topicObj;
+      next if $search && !$search->matches($topicObj);    # that match the query
+      next unless $theDB->checkAccessPermission('VIEW', $wikiName, $topicObj);
 
-      my $fieldValue = $topicObj->fastget($field);
-      $fieldValue = $topicObj->getFieldValue($field) if !defined($fieldValue) || ref($fieldValue);
-      next unless defined $fieldValue; 
+      my $fullTopicName = $isMultipleWebs ? "$web.$topicName" : $topicName;
+      #_writeDebug("found topic $topicName");
+      my $createDate = $topicObj->fastget('createdate');
+      my $modified = $topicObj->get('info.date');
+      my $publishDate = $topicObj->get('publishdate') || 0;
+      foreach my $field (split(/\s*,\s*/, $theFields)) {    # loop over all fields
 
-      my $command = $params->{process} // $params->{"process_".$field};
-      if (defined $command) {
-        $command = Foswiki::Func::decodeFormatTokens($command);
-        $command =~ s/\$value/$fieldValue/g;
-        if ($command =~ /%/) {
-          $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $thisWeb);
-        } else {
-          $fieldValue = $command;
-        }
-      } else {
-        $fieldValue = _formatTime($fieldValue, $theDateFormat, {language => $theDateLanguage} ) if $field =~ /created(ate)?|modified|publishdate/;
-      }
-      #_writeDebug("reading field $field found $fieldValue");
+        #my $fieldValue = $topicObj->fastget($field);
+        my $fieldValue = $topicObj->get($field);
+        $fieldValue = $topicObj->getFieldValue($field) if !defined($fieldValue) || ref($fieldValue);
+        next unless defined $fieldValue; 
 
-      foreach my $item (split(/$theSplit/, $fieldValue)) {
-        while ($item =~ /$thePattern/g) {                 # loop over all occurrences of the pattern
-          my $key1 = $1;
-          my $key2 = $2 // '';
-          my $key3 = $3 // '';
-          my $key4 = $4 // '';
-          my $key5 = $5 // '';
-          if ($theCase) {
-            next if $theExclude && $key1 =~ /$theExclude/;
-            next if $theInclude && $key1 !~ /$theInclude/;
+        my $command = $params->{process} // $params->{"process_".$field};
+        if (defined $command) {
+          $command = Foswiki::Func::decodeFormatTokens($command);
+          $command =~ s/\$value/$fieldValue/g;
+          if ($command =~ /%/) {
+            $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $web);
           } else {
-            next if $theExclude && $key1 =~ /$theExclude/i;
-            next if $theInclude && $key1 !~ /$theInclude/i;
+            $fieldValue = $command;
           }
-          my $record = $statistics{$key1};
-          if ($record) {
-            $record->{count}++;
-            $record->{createdate_from} = $createDate if $record->{createdate_from} > $createDate;
-            $record->{createdate_to} = $createDate if $record->{createdate_to} < $createDate;
-            $record->{modified_from} = $modified if $record->{modified_from} > $modified;
-            $record->{modified_to} = $modified if $record->{modified_to} < $modified;
-            $record->{publishdate_from} = $publishDate if defined $publishDate && $record->{publishdate_from} > $publishDate;
-            $record->{publishdate_to} = $publishDate if defined $publishDate && $record->{publishdate_to} < $publishDate;
-            $record->{topics}{$topicName} = 1;
-          } else {
-            my %record = (
-              count => 1,
-              modified_from => $modified,
-              modified_to => $modified,
-              createdate_from => $createDate,
-              createdate_to => $createDate,
-              publishdate_from => $publishDate,
-              publishdate_to => $publishDate,
-              keyList => [$key1, $key2, $key3, $key4, $key5],
-              topics => {$topicName => 1},
-            );
-            $statistics{$key1} = \%record;
+        } else {
+          $fieldValue = _formatTime($fieldValue, $theDateFormat, {language => $theDateLanguage} ) if $field =~ /created(ate)?|modified|publishdate/;
+        }
+        #_writeDebug("reading field $field found $fieldValue");
+
+        foreach my $item (split(/$theSplit/, $fieldValue)) {
+          while ($item =~ /$thePattern/g) {                 # loop over all occurrences of the pattern
+            my @keyList = ($1 // "", $2 // "", $3 // "", $4 // "" , $5 // "");
+            my $key = $keyList[$theKeyNumber];
+            $key = lc($key) if $theCase;
+            if ($theCase) {
+              next if $theExclude && $key =~ /$theExclude/;
+              next if $theInclude && $key !~ /$theInclude/;
+            } else {
+              next if $theExclude && $key =~ /$theExclude/i;
+              next if $theInclude && $key !~ /$theInclude/i;
+            }
+            my $record = $statistics{$key};
+            if ($record) {
+              $record->{count}++;
+              $record->{createdate_from} = $createDate if $record->{createdate_from} > $createDate;
+              $record->{createdate_to} = $createDate if $record->{createdate_to} < $createDate;
+              $record->{modified_from} = $modified if $record->{modified_from} > $modified;
+              $record->{modified_to} = $modified if $record->{modified_to} < $modified;
+              $record->{publishdate_from} = $publishDate if defined $publishDate && $record->{publishdate_from} > $publishDate;
+              $record->{publishdate_to} = $publishDate if defined $publishDate && $record->{publishdate_to} < $publishDate;
+              $record->{topics}{$isMultipleWebs?$fullTopicName:$topicName} = 1;
+              $record->{keyList} = _mergeLists($record->{keyList}, \@keyList);
+            } else {
+              $record = {
+                count => 1,
+                modified_from => $modified,
+                modified_to => $modified,
+                createdate_from => $createDate,
+                createdate_to => $createDate,
+                publishdate_from => $publishDate,
+                publishdate_to => $publishDate,
+                keyList => \@keyList,
+                topics => {$isMultipleWebs?$fullTopicName:$topicName => 1},
+              };
+              $statistics{$key} = $record;
+            }
           }
         }
       }
     }
-
-    # Disabled for performance reasons: in the end all topics of a web will be added anyway
-    #$Foswiki::Plugins::DBCachePlugin::addDependency->($thisWeb, $topicName);
   }
+
   my $min = 99999999;
   my $max = 0;
   my $sum = 0;
@@ -1113,9 +1126,15 @@ sub getWebKey {
   $web =~ s/\./\//g;
 
   unless (defined $this->{webKeys}{$web}) {
-    return unless Foswiki::Sandbox::validateWebName($web);
+    unless (Foswiki::Sandbox::validateWebName($web)) {
+      print STDERR "WARNING: invalid web name '$web'\n";
+      return;
+    }
     my $dir = $Foswiki::cfg{DataDir} . '/' . $web;
-    return unless -d $dir;
+    unless (-d $dir) {
+      print STDERR "WARNING: cannot find directory '$dir' for web '$web'\n";
+      return;
+    }
     $this->{webKeys}{$web} = Cwd::fast_abs_path($dir);
   }
 
@@ -1136,9 +1155,12 @@ sub getDB {
   _writeDebug("called getDB($theWeb, ".($refresh||0).")");
 
   my $webKey = $this->getWebKey($theWeb);
-  return unless defined $webKey;    # invalid webname
+  unless (defined $webKey) {
+    print STDERR "WARNING: invalid web name '$theWeb'\n";
+    return;
+  }
 
-  #_writeDebug("webKey=$webKey");
+  _writeDebug("webKey=$webKey");
 
   my $db = $webDB{$webKey};
   my $isModified;
@@ -1153,16 +1175,23 @@ sub getDB {
     $isModified = 1;
   }
 
-  if ($isModified || $refresh) {
-    $db = $webDB{$webKey} = $this->newDB($theWeb);
-    $db->load($refresh);
-    _writeDebug("need to load again");
+  if ($isModified || $refresh ) {
+    if ($this->{_reloading}{$theWeb}) { # prevent infinite recursion
+      print STDERR "WARNING: already reloading $theWeb\n";
+    } else {
+      $this->{_reloading}{$theWeb} = 1;
 
-    my $session = $Foswiki::Plugins::SESSION;
-    my $baseWeb = $session->{webName};
-    my $baseTopic = $session->{topicName};
-    if ($baseWeb eq $theWeb) {
-      $db->load($refresh, $baseWeb, $baseTopic);
+      _writeDebug("need to load again, isModified=$isModified, refresh=$refresh");
+      $db = $webDB{$webKey} = $this->newDB($theWeb);
+      $db->load($refresh);
+
+      my $session = $Foswiki::Plugins::SESSION;
+      my $baseWeb = $session->{webName};
+      my $baseTopic = $session->{topicName};
+      if ($baseWeb eq $theWeb) {
+        $db->load($refresh, $baseWeb, $baseTopic);
+      }
+      $this->{_reloading}{$theWeb} = 0;
     }
   }
 
@@ -1533,6 +1562,22 @@ sub _takeOutBlocks {
 }
 
 ###############################################################################
+sub _mergeLists {
+  my ($l1, $l2) = @_;
+
+  my $i = 0;
+  my $len = scalar(@$l1);
+  my @result = ();
+  while ($i < $len) {
+    my $item = $l1->[$i] || $l2->[$i] || '';
+    push @result, $item;
+    $i++;
+  }
+ 
+  return \@result;
+}
+
+###############################################################################
 # compatibility wrapper
 sub _putBackBlocks {
   return Foswiki::putBackBlocks(@_) if defined &Foswiki::putBackBlocks;
@@ -1544,5 +1589,7 @@ sub _writeDebug {
   #Foswiki::Func::writeDebug('- DBCachePlugin - '.$_[0]) if TRACE;
   print STDERR "- DBCachePlugin::Core - $_[0]\n" if TRACE;
 }
+
+
 
 1;
