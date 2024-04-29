@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2024 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -139,7 +139,7 @@ sub add {
     $format =~ s/\s+$//;
 
     foreach my $prop (split(/\s*,\s*/, $format)) {
-      my $val = $this->_expandPath($web, $obj, $prop) || '';
+      my $val = $this->_expandPath($web, $obj, $prop) // '';
       push @{$this->{_propNames}}, $prop;
 
       $this->{_isNumerical}{$prop} //= 1;

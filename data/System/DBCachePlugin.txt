@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1556788539" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="reprev" date="1698311436" format="1.1" reprev="5" version="1"}%
 ---+!! <nop>%TOPIC%
 %FORMFIELD{"Description"}%
 
@@ -82,23 +82,21 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 
 *Syntax:*
 | *%<nop>DBQUERY{"&lt;search>" ... }%* ||
-| ="&lt;search>"= \
-| search clause, see below |
-| =topics="..."= or =topic="..."= \
-| set of topics to consult (mode (b)); \
-  if "topics" are specified in addition to a "search" it will be restricted to \
-  the given topics |
+| ="&lt;search>"= | search clause, see below |
+| =topics="..."= or =topic="..."= | set of topics to consult (mode (b)); \
+                    if "topics" are specified in addition to a "search" it will be restricted to \
+                    the given topics |
 | =web="..."= | web where to search for hits; defaults to the current one |
 | =webs="..."= | regular expression of webs to be searched for; if specified takes higher precedence than =web=; \
                  can also be =all= to search in all webs or a comma-separated list of webs to search in |
 | =format="..."= | format string to display search hits;\
-  defaults to "$topic"; the special format string "none" disables the format string |
+                    defaults to "$topic"; the special format string "none" disables the format string |
 | =header="..."= | format string to prepended to the list of hits |
 | =footer="..."= | format string to appended to the list of hits |
-| =nullformat="..."= | format string to be used when no result was found | |
+| =nullformat="..."= | format string to be used when no result was found | 
 | =separator="..."= | format string used to separate hits; \
-  defaults to "$n"; the special separator "none" disables separation |
-| dateformat="..." | format of any date formfield in case you'd like to deviate from the default date format |
+                      defaults to "$n"; the special separator "none" disables separation |
+| =dateformat="..."= | format of any date formfield in case you'd like to deviate from the default date format |
 | =include="..."= | pattern each found topic name must match to be considered a hit; can also be a comma separated list of topics |
 | =exclude="..."= | pattern each found topic name must not match to be considered a hit; can also be a comma separated list of topics |
 | =sort="..."= | specifies the sorting of hits; this can be a comma separted list of attributes to specify more complicated sortings; special value "random"; defaults to "name" |
@@ -110,7 +108,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 | =newline="..."= | string to substitute newlines in formfield values with, e.g. =newline="&lt;br />"= | |
 | =remote="on,off"= | switch fixing !WikiWords in transcluded content; \
                      =on= means "don't touch, this is remote content" \
-		     defaults to "on" |
+		               defaults to "on" |
 | =context="..."= | name of a hash within a topic to use a root for any queries; for example this may be used to search over all =attachments= or any custom meta data such as =comments= as per Foswiki:Extensions/MetaCommentsPlugin |
 
 Following variables are expanded in format strings:
@@ -129,6 +127,7 @@ Following variables are expanded in format strings:
      (see the [[%SYSTEMWEB%.VarGMTIME][GMTIME]] documentation).
    * $expand(&lt;formfield-accessor>): return the formfield pointed to by the 
       &lt;formfield-accessor>
+   * $expandEncoded(&lt;formfield-accessor>): same as $expand() however results are entity encoded 
    * $displayValue('&lt;formfield-name'): the display value of the given formfield; this may differ from the value returned by =$formfield()= when it has been defined as a "value-mapped" formfield using ="+values" 
    * $html(&lt;formfield-accessor>): same as =$expand()= but expands macros and TML markup
    * $d2n(&lt;formfield-accessor>): converts a date formfield's value to epoch seconds
@@ -139,7 +138,7 @@ Following variables are expanded in format strings:
    * $trunc(...,length): truncate a string to the given length
    * $uc(...): converts a string to upper case
    * $lc(...): converts a string to lower case
-   * $translate(...): translate a string using Foswiki's internal I18N or [[Foswiki:Extensions/MultiLingualPlugin][MultiLingualPlugin]] if installed
+   * $translate(...): translate a string using Foswiki's internal I18N or [[https://foswiki.org/Extensions/MultiLingualPlugin][MultiLingualPlugin]] if installed
 
 *Formfield accessors:*
 
@@ -236,7 +235,7 @@ Compute and format a statistics on the database.
 | =format="..."= | format string used for each key in the output |
 | =sep(arator)="..."= | separator to put between formatted keys |
 | =footer="..."= | footer format string to be appended to the output |
-| =sort="alpha,created"= | order of keys in the output |
+| =sort="alpha,created,num"= | order of keys in the output |
 | =reverse="on,off"= | sort keys descending or ascending |
 | =limit="..."= | maximum number of keys to be formatted in the output |
 | =hidenull="..."= | flag to indicate that an empty hit set should not be displayed |
@@ -268,7 +267,7 @@ For example if you want to extract all month/years from a database's =Date= fiel
 that has the format =dd mon yyyy= and then format a link to an archive using
 the month and the year as separate url parameters then use something like this:
 <verbatim>
-%DBSTATS{"<db query>"
+%DBSTATS{"query"
    field="Date"
    pattern="((\w+) (\d\d\d\d))"
    header="---++ Archive"
@@ -382,7 +381,7 @@ The <nop>DBCachePlugin supports overloading the contained default database cache
 from =DBCachePlugin::WebDB= being itself a =DBCacheContrib=. The only purpose of the 
 =DBCachePlugin::WebDB= is to extract the <nop>TopicFunctions contained in a topic as described
 above. You can easily extend this functionality by deriving a <nop>WebDB specific to your
-own <nop>WikiApplication. For example, the Foswiki:Extensions.BlogPlugin defines a <no>WebDB of
+own <nop>WikiApplication. For example, the Foswiki:Extensions.BlogPlugin defines a <nop>WebDB of
 its own where it caches the createdate of a topic being either specified in a formfield  or
 given in the timestamp of the first revision of a topic.
 
@@ -482,7 +481,7 @@ when the user has got view access to the target topic.
 <div class="foswikiWarningMessage">
 WARNING: before using <nop>DBCachePlugin on your site do take down your web server and run
 
-=cd <foswiki-root>/bin; ./rest /DBCachePlugin/updateCache=
+=cd &lt;foswiki-root>/bin; ./rest /DBCachePlugin/updateCache=
 
 to generate all caches initially. Then switch on the web server again. The cache will be maintained
 automatically from there on.
@@ -494,6 +493,12 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  29 Apr 2024: | new =expandEncoded()= helper; \
+                  improved sorting of search results numerically; \
+                  improved formatting date times according to the user's locale settings; \
+                  fixed processing formfield values in =%DBSTATS= macro; \
+                  removed local implementation of getting the topic title, using !TopicTitlePlugin exclusively now; \
+                  indexing a topic thumbnail now |
 |  23 Aug 2022: | updated documentation |
 |  31 May 2022: | caching topic title of <nop>WebHome as webtitle; use !TopicTitlePlugin to fetch the topic title |
 |  28 Apr 2022: | fixed a couple of memory leaks; performance improvements; improved recursion detection in =%DBCALL= |
@@ -657,7 +662,7 @@ automatically from there on.
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/DBCachePlugin"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2022, Michael Daum"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2024, Michael Daum"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="Foswiki:Support/%25TOPIC%25"}%

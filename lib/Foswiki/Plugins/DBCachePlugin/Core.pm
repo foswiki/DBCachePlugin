@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2024 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -68,7 +68,9 @@ sub new {
     } elsif ($refresh =~ /^(on|dbcache)$/) {
       $this->{doRefresh} = 2;
       %webDB = ();
-      #_writeDebug("found refresh in urlparam");
+    } elsif ($refresh eq 'force') {
+      $this->{doRefresh} = 3;
+      %webDB = ();
     }
   } else {
     %webDB = ();
@@ -252,6 +254,7 @@ sub handleDBQUERY {
   my $theNewline = $params->{newline};
   my $theContext = $params->{context};
   my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
+  my $theDateLanguage = $params->{datelanguage} // $session->i18n->language() // 'en';
 
   $theFormat = '$topic' unless defined $theFormat;
   $theFormat = '' if $theFormat eq 'none';
@@ -360,6 +363,12 @@ sub handleDBQUERY {
         $temp =~ s#\)#${TranslationToken}#g;
         $temp =~ s#\r?\n#$theNewline#gs if defined $theNewline;
         $temp/ge;
+      $line =~ s/\$expandEncoded\((.*?)\)/
+        my $temp = $1;
+        $temp = $theDB->expandPath($obj, $temp);
+        $temp = _entityEncode($temp);
+        $temp =~ s#\)#${TranslationToken}#g;
+        $temp/ge;
       $line =~ s/\$expand\((.*?)\)/
         my $temp = $1;
         $temp = $theDB->expandPath($obj, $temp);
@@ -378,7 +387,7 @@ sub handleDBQUERY {
         $temp = Foswiki::Func::renderText($temp, $web, $topicName);
         $temp/ge;
       $line =~ s/\$d2n\((.*?)\)/Foswiki::Contrib::DBCacheContrib::parseDate($theDB->expandPath($obj, $1))||0/ge;
-      $line =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($obj, $1), $2)/ge;    # single quoted
+      $line =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($obj, $1), $2, {language => $theDateLanguage})/ge;    # single quoted
       $line =~ s/\$topic/$topicName/g;
       $line =~ s/\$web/$web/g;
       $line =~ s/\$index/$index/g;
@@ -433,10 +442,7 @@ sub findTopicMethod {
 
   # get form object
   my $baseDB = $this->getDB($thisWeb);
-  unless ($baseDB) {
-    print STDERR "WARNING: DBCachePlugin can't get cache for web '$thisWeb'\n";
-    return;
-  }
+  return unless $baseDB;
 
   #_writeDebug("1");
 
@@ -452,10 +458,7 @@ sub findTopicMethod {
   #_writeDebug("formWeb=$formWeb, formTopic=$formTopic");
 
   my $formDB = $this->getDB($formWeb);
-  unless ($formDB) {
-    print STDERR "WARNING: DBCachePlugin can't get cache for web '$formWeb'\n";
-    return;
-  }
+  return unless $formDB;
 
   #_writeDebug("4");
 
@@ -761,19 +764,35 @@ sub handleDBSTATS {
         $fieldValue = $topicObj->getFieldValue($field) if !defined($fieldValue) || ref($fieldValue);
         next unless defined $fieldValue; 
 
-        my $command = $params->{process} // $params->{"process_".$field};
+        my $command = $params->{"process_".$field} // $params->{process};
         if (defined $command) {
           $command = Foswiki::Func::decodeFormatTokens($command);
-          $command =~ s/\$value/$fieldValue/g;
+          $command =~ s/\$value\b/$fieldValue/g;
+          $command =~ s/\$topic\b/$topicName/g;
+          $command =~ s/\$web\b/$web/g;
+
           if ($command =~ /%/) {
             $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $web);
           } else {
             $fieldValue = $command;
           }
+
         } else {
           $fieldValue = _formatTime($fieldValue, $theDateFormat, {language => $theDateLanguage} ) if $field =~ /created(ate)?|modified|publishdate/;
         }
         #_writeDebug("reading field $field found $fieldValue");
+
+        my $weight = $params->{"weight_".$field} // $params->{weight};
+        if (defined $weight) {
+          $weight = Foswiki::Func::decodeFormatTokens($weight);
+          $weight =~ s/\$topic\b/$topicName/g;
+          $weight =~ s/\$web\b/$web/g;
+
+          if ($weight =~ /%/) {
+            $weight = Foswiki::Func::expandCommonVariables($weight, $topicName, $web);
+          }
+        }
+        $weight = 1 unless defined $weight && $weight =~ /^\d+$/;
 
         foreach my $item (split(/$theSplit/, $fieldValue)) {
           while ($item =~ /$thePattern/g) {                 # loop over all occurrences of the pattern
@@ -789,9 +808,11 @@ sub handleDBSTATS {
             }
             my $record = $statistics{$key};
             if ($record) {
-              $record->{count}++;
-              $record->{createdate_from} = $createDate if $record->{createdate_from} > $createDate;
-              $record->{createdate_to} = $createDate if $record->{createdate_to} < $createDate;
+              $record->{count} += $weight;
+              if (defined $createDate) {
+                $record->{createdate_from} = $createDate if $record->{createdate_from} > $createDate;
+                $record->{createdate_to} = $createDate if $record->{createdate_to} < $createDate;
+              }
               $record->{modified_from} = $modified if $record->{modified_from} > $modified;
               $record->{modified_to} = $modified if $record->{modified_to} < $modified;
               $record->{publishdate_from} = $publishDate if defined $publishDate && $record->{publishdate_from} > $publishDate;
@@ -800,7 +821,7 @@ sub handleDBSTATS {
               $record->{keyList} = _mergeLists($record->{keyList}, \@keyList);
             } else {
               $record = {
-                count => 1,
+                count => $weight,
                 modified_from => $modified,
                 modified_to => $modified,
                 createdate_from => $createDate,
@@ -854,6 +875,8 @@ sub handleDBSTATS {
         $statistics{$b}->{modified_to} <=> $statistics{$a}->{modified_to}
         or $a cmp $b
     } keys %statistics;
+  } elsif ($theSort eq 'num') {
+    @sortedKeys = sort {$a <=> $b} keys %statistics;
   } else {
     @sortedKeys = sort keys %statistics;
   }
@@ -1005,7 +1028,7 @@ sub handleDBRECURSE {
   my $error;
 
   try {
-    $result = $this->formatRecursive($theDB, $thisWeb, $thisTopic, $params);
+    $result = $this->formatRecursive($session, $theDB, $thisWeb, $thisTopic, $params);
   }
   catch Error::Simple with {
     $error = shift->stringify();
@@ -1025,7 +1048,7 @@ sub handleDBRECURSE {
 
 ###############################################################################
 sub formatRecursive {
-  my ($this, $theDB, $theWeb, $theTopic, $params, $seen, $depth, $number) = @_;
+  my ($this, $session, $theDB, $theWeb, $theTopic, $params, $seen, $depth, $number) = @_;
 
   # protection agains infinite recursion
   $seen ||= {};
@@ -1047,6 +1070,8 @@ sub formatRecursive {
 
   #_writeDebug("queryString=$queryString");
   my $hits = $theDB->dbQuery($queryString, undef, $params->{sort}, $params->{reverse}, $params->{include}, $params->{exclude});
+
+  my $theDateLanguage = $params->{datelanguage} // $session->i18n->language() // 'en';
 
   # format this round
   my @result = ();
@@ -1085,12 +1110,12 @@ sub formatRecursive {
       my $temp = $theDB->expandPath($topicObj, $1);
       $temp =~ s#\)#${TranslationToken}#g;
       $temp/ge;
-    $text =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($topicObj, $1), $2)/ge;    # single quoted
+    $text =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($topicObj, $1), $2, {language => $theDateLanguage})/ge;    # single quoted
 
     push @result, $text;
 
     # recurse
-    my $subResult = $this->formatRecursive($theDB, $theWeb, $topicName, $params, $seen, $depth + 1, $numberString);
+    my $subResult = $this->formatRecursive($session, $theDB, $theWeb, $topicName, $params, $seen, $depth + 1, $numberString);
 
     if ($subResult && @$subResult) {
       push @result,

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2024 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -25,10 +25,11 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '15.00';
-our $RELEASE = '21 Aug 2022';
+our $VERSION = '16.00';
+our $RELEASE = '%$RELEASE%';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
+our $LICENSECODE = '%$LICENSECODE%';
 
 our $core;
 our $addDependency;
@@ -214,9 +215,10 @@ sub afterAttachmentSaveHandler {
 ###############################################################################
 # Foswiki::Plugins::VERSION >= 2.1
 sub afterUploadHandler {
+  my ($attrHashRef, $meta) = @_;
+
   return if scalar(@isEnabledSaveHandler);
 
-  my ($attrHashRef, $meta) = @_;
   my $web = $meta->web;
   my $topic = $meta->topic;
   return getCore()->afterSaveHandler($web, $topic);
@@ -225,9 +227,9 @@ sub afterUploadHandler {
 ###############################################################################
 # Foswiki::Plugins::VERSION >= 2.1
 sub afterRenameHandler {
-  return if scalar(@isEnabledRenameHandler);
-
   my ($web, $topic, $attachment, $newWeb, $newTopic, $newAttachment) = @_;
+
+  return if scalar(@isEnabledRenameHandler);
 
   return getCore()->afterSaveHandler($web, $topic, $newWeb, $newTopic, $attachment, $newAttachment);
 }

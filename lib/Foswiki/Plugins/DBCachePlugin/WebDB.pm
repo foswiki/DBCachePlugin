@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2022 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2024 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -106,10 +106,6 @@ sub onReload {
     $this->cleanUpText($text);
     $text //= "";
 
-    # SMELL: call getRevisionInfo to make sure the latest revision is loaded
-    # for get('TOPICINFO') further down the code
-    # $meta->getRevisionInfo();
-
     writeDebug("reloading $topic");
 
     # createdate
@@ -144,40 +140,7 @@ sub onReload {
     my $form = $obj->getForm();
 
     # get topic title
-    my $topicTitle;
-    if (0) {
-      # use internal mechanism
-      
-      unless (defined $topicTitleField) {
-        $topicTitleField = Foswiki::Func::getPreferencesValue("TOPICTITLE_FIELD") || "TopicTitle"
-      }
-
-      # 1. get from preferences
-      $topicTitle = $this->getPreference($obj, 'TOPICTITLE');
-      #print STDERR "... getting topicTitle from preference: ".($topicTitle//'undef')."\n";
-
-      # 2. get from form
-      if ($form && (!defined $topicTitle || $topicTitle eq '')) {
-        $topicTitle = $form->fastget($topicTitleField) || '';
-        $topicTitle = urlDecode($topicTitle);
-        #print STDERR "... getting topicTitle from form: ".($topicTitle//'undef')."\n";
-      }
-
-      # 4. use topic name
-      unless ($topicTitle) {
-        if ($topic eq $Foswiki::cfg{HomeTopicName}) {
-          $topicTitle = $this->{web};
-          $topicTitle =~ s/^.*[\.\/]//;
-        } else {
-          $topicTitle = $topic;
-        }
-        #print STDERR "... getting topicTitle from topic name: ".($topicTitle//'undef')."\n";
-      }
-    } else {
-      # use TopicTitlePlugin
-      $topicTitle = Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $topic, undef, $meta);
-    }
-
+    my $topicTitle = Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $topic, undef, $meta);
     #print STDERR "... found topicTitle: ".($topicTitle//'undef')."\n";
     $obj->set('topictitle', $topicTitle);
 
@@ -195,6 +158,24 @@ sub onReload {
           $form->set("Inheritance", $inheritance);
         }
       }
+    }
+
+    # index thumbnail
+    my @attachments = sort { lc($a->{comment}||$a->{name}) cmp lc($b->{comment}||$b->{name}) } 
+      $meta->find("FILEATTACHMENT");
+    my $thumbnail;
+    foreach my $attachment (@attachments) {
+      if ($attachment->{attr} =~ /t/) {
+        $thumbnail = $attachment;
+        last;
+      }
+      if (!$thumbnail && $attachment->{name} =~ /\.(jpe?g|gif|png|bmp|webp|avif)$/i) {
+        $thumbnail = $attachment;
+      }
+    }
+    if ($thumbnail) {
+      writeDebug("thumbnail=$thumbnail->{name}, attr=$thumbnail->{attr}");
+      $obj->set("thumbnail", $thumbnail->{name});
     }
 
     # call index topic handlers
@@ -303,7 +284,7 @@ sub dbQuery {
     next unless $topicObj;    # never
     next unless $isAdmin || $this->_hasViewAccess($topicName, $topicObj, $wikiName);
 
-    if ($theContext) { # SMELL: experimental
+    if ($theContext) { 
       my $context = $topicObj->fastget($theContext);
       next unless $context;
 
@@ -343,7 +324,7 @@ sub _hasViewAccess {
   my $prefs = $obj->fastget('preferences');
   if (defined($prefs)) {
     foreach my $key ($prefs->getKeys()) {
-      if ($key =~ /^(ALLOW|DENY)TOPIC/) {
+      if ($key =~ /^(ALLOW|DENY)TOPICVIEW/) {
         $topicHasPerms = 1;
         last;
       }
