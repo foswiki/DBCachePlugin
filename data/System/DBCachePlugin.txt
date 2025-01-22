@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="reprev" date="1698311436" format="1.1" reprev="5" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1737569858" format="1.1"  version="1"}%
 ---+!! <nop>%TOPIC%
 %FORMFIELD{"Description"}%
 
@@ -60,12 +60,14 @@ Fetch topic content or a section of it from the database store.
 | =section="..."= | optional named section; without this parameter the "default" section is used |
 | =&lt;key>="&lt;value>"= | topic arguments to be substituted within the included text; that is \
             every occurrence of &lt;key> is substituted with &lt;value> |
+| =encode="on,off,entity,url,html"= | encode the extracted content before further processing it (defaults to "off") ||
 | =warn="on,off"= | enable/suppress error warnings |
 | =remote="on,off"= | switch fixing !WikiWords in transcluded content; \
                      =on= means "don't touch, this is remote content" \
 		     defaults to "off" because that's the default behaviour of \
 		     =%<nop>INCLUDE{}%= (note, DBQUERY defaults to "on" \
 		     aka do-not-touch-mode) |
+| =encode="on,entity,html,url,quote" | encode output |
 
 ---+++ DBDUMP
 Display the database record of a topic (useful for debugging).
@@ -105,11 +107,12 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
 | =warn="on,off"= | enable/suppress error warnings |
 | =skip="..."= | number of topics to skip while constructing the hit set; defaults to "0" |
 | =hidenull="..."= | flag to indicate that an empty hit set should not be displayed |
-| =newline="..."= | string to substitute newlines in formfield values with, e.g. =newline="&lt;br />"= | |
+| =newline="..."= | string to substitute newlines in formfield values with, e.g. =newline="&lt;br />"= | 
 | =remote="on,off"= | switch fixing !WikiWords in transcluded content; \
                      =on= means "don't touch, this is remote content" \
 		               defaults to "on" |
 | =context="..."= | name of a hash within a topic to use a root for any queries; for example this may be used to search over all =attachments= or any custom meta data such as =comments= as per Foswiki:Extensions/MetaCommentsPlugin |
+| =absolute_urls="on,off"= | render urls absolute (defaults to off) |
 
 Following variables are expanded in format strings:
    * $percnt: % sign
@@ -130,6 +133,7 @@ Following variables are expanded in format strings:
    * $expandEncoded(&lt;formfield-accessor>): same as $expand() however results are entity encoded 
    * $displayValue('&lt;formfield-name'): the display value of the given formfield; this may differ from the value returned by =$formfield()= when it has been defined as a "value-mapped" formfield using ="+values" 
    * $html(&lt;formfield-accessor>): same as =$expand()= but expands macros and TML markup
+   * $htmlEncode(&lt;formfield-accessor>): same as =$html()= but results are entity encoded
    * $d2n(&lt;formfield-accessor>): converts a date formfield's value to epoch seconds
    * $rss(...): encode entities so that the text can be included in an rss feed
    * $encode(...): encode entities so that the text can be included in HTML input form elements
@@ -186,7 +190,7 @@ Traverse topic-to-topic relations, like the intrinsic parent-child relation
 | =depth="..."= | only recurse to a given depth, defaults to =0= (unlimited) |
 | =include="..."= | regular expression topics must match to be included in the search; can also be a comma separated list of topics |
 | =exclude="..."= | regular expression that excludes matching topics from the search; can also be a comma separated list of topics |
-| =newline="..."= | string to substitute newlines in formfield values with, e.g. =newline="&lt;br />"= | |
+| =newline="..."= | string to substitute newlines in formfield values with, e.g. =newline="&lt;br />"= | 
 
 The =...format=, =...header= and =...footer= format strings may contain the following variables:
    * $web: the current web
@@ -220,6 +224,7 @@ Compute and format a statistics on the database.
 | *%<nop>DBSTATS{"&lt;search>" ...}%* ||
 | ="&lt;search>"= | query string that defines a search, see DBCacheContrib |
 | =web="..."= | the web where to search in (default: current web) |
+| =webs="..."= | list of webs where to search in (default: web specified in =web= parameter) |
 | =field(s)="..."= | name of one or more formfields to be extracted (default: "text") |
 | =process="..."= | macro being used to post-process field values extracted from the database; macro are escaped using standard format tokens (=$percnt=, =$dollar=, etc); \
                     the result is used instead of the direct field value; when extracting multiple =fields=, specific process statements might be specified using \
@@ -282,7 +287,7 @@ compete pattern, the second the month the third the year.
 Post-processing field values using a =process= macro comes in handy when dealing with formfields of type =date=.
 As these are stored in epoch seconds, you might decide to format them into an appropriate way before generating statistics on its base:
 
-<verbatim class="tml">
+<verbatim>
 %DBSTATS{
   "form='Invoice'"
   field="PaidDate"
@@ -314,8 +319,10 @@ reference the "neigbour" documetns of an item found in a search query
 | ="&lt;search>"= | query string that defines a search, see DBCacheContrib |
 | =web="..."= | the web where to search in (default: current web) |
 | =topic="..."= | the topic from where to search for neighbours (default: current topic) |
+| =topics="..."= | list of topics to consider, all topics in web by default |
 | =format="..."= | format string to render the results (default: "$web.$topic") |
-| =order= | define a sorting on the hit set; see above |
+| =nullformat="..."= | format string to be used when no result was found |
+| =order="..."= | define a sorting on the hit set; see above |
 | =reverse="on,off"= | sort keys descending or ascending |
 | =warn="on,off"= | enable/suppress error warnings |
 
@@ -327,7 +334,7 @@ These two macros come in handy rendering a navigation among search results found
 example, the following code will render a navigation as found in blog applications linking to the 
 previous and next blog entry in a list of postings ordered by created date:
 
-<verbatim class="tml">
+<verbatim>
 %DBPREV{
   search="TopicType=~'\bBlogEntry\b' AND State != 'unpublished' AND topic != 'WebTopicEditTemplate'" 
   order="created"
@@ -493,6 +500,11 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  22 Jan 2025: | new multi-key sorting of search results; \
+                  added =absoluteurls= to =%DBQUERY=; \
+                  added =encode= to =%DBCALL= |
+|  07 Jul 2024: | added =$htmlEncode()= to format strings |
+|  15 May 2024: | new =nullformat= parameter for =%DBPREV= and =%DBNEXT= |
 |  29 Apr 2024: | new =expandEncoded()= helper; \
                   improved sorting of search results numerically; \
                   improved formatting date times according to the user's locale settings; \
@@ -662,7 +674,7 @@ automatically from there on.
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/DBCachePlugin"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2024, Michael Daum"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2025, Michael Daum"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="Foswiki:Support/%25TOPIC%25"}%

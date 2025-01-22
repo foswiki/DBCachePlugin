@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2024 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -31,6 +31,7 @@ use Foswiki::Time ();
 use Foswiki::Plugins ();
 use Foswiki::Form ();
 use Foswiki::Func ();
+use Foswiki::Meta ();
 use Error qw(:try);
 
 use constant TRACE => 0; # toggle me
@@ -55,6 +56,13 @@ sub new {
   $this->{webViewPermission} = ();
 
   return $this;
+}
+
+###############################################################################
+sub clearACLCache {
+  my $this = shift;
+
+  undef $this->{webViewPermission};
 }
 
 ###############################################################################
@@ -103,6 +111,7 @@ sub onReload {
 
     # get meta object
     my ($meta, $text) = Foswiki::Func::readTopic($this->{web}, $topic);
+    $meta->loadVersion();
     $this->cleanUpText($text);
     $text //= "";
 
@@ -165,6 +174,7 @@ sub onReload {
       $meta->find("FILEATTACHMENT");
     my $thumbnail;
     foreach my $attachment (@attachments) {
+      $attachment->{attr} //= "";
       if ($attachment->{attr} =~ /t/) {
         $thumbnail = $attachment;
         last;
@@ -215,7 +225,7 @@ sub getFormField {
 
 ###############################################################################
 sub getNeighbourTopics {
-  my ($this, $theTopic, $theSearch, $theOrder, $theReverse) = @_;
+  my ($this, $theTopic, $theSearch, $theOrder, $theReverse, $theTopics) = @_;
 
   my $key = $this->{web}.'.'.$theTopic.':'.$theSearch.':'.$theOrder.':'.$theReverse;
   my $prevTopic = $this->{prevTopicCache}{$key};
@@ -223,7 +233,7 @@ sub getNeighbourTopics {
 
   unless ($prevTopic && $nextTopic) {
 
-    my $hits = $this->dbQuery($theSearch, undef, $theOrder, $theReverse);
+    my $hits = $this->dbQuery($theSearch, $theTopics, $theOrder, $theReverse);
     my $state = 0;
     while (my $obj = $hits->next) {
       my $t = $obj->fastget("topic");
@@ -256,6 +266,8 @@ sub getNeighbourTopics {
 sub dbQuery {
   my ($this, $theSearch, $theTopics, $theSort, $theReverse, $theInclude, $theExclude, $hits, $theContext) = @_;
 
+  my $wikiName = Foswiki::Func::getWikiName();
+
   # get max hit set
   my @topicNames;
   if ($theTopics && @$theTopics) {
@@ -277,21 +289,25 @@ sub dbQuery {
     reverse => $theReverse,
   );
 
-  my $wikiName = Foswiki::Func::getWikiName();
   my $isAdmin = Foswiki::Func::isAnAdmin();
   foreach my $topicName (@topicNames) {
     my $topicObj = $this->fastget($topicName);
     next unless $topicObj;    # never
-    next unless $isAdmin || $this->_hasViewAccess($topicName, $topicObj, $wikiName);
 
     if ($theContext) { 
       my $context = $topicObj->fastget($theContext);
       next unless $context;
 
       foreach my $obj ($context->getValues()) {
-        my $name = $obj->fastget("name");
+        my $name = $obj->fastget("name") // '';
+
+        unless (defined $name) {
+          print STDERR "WARNING: $this->{web}.$topicName doesn't have a name attribute in context $theContext\n";
+          next;
+        }
 
         if (!$search || $search->matches($obj, {webDB=>$this})) {
+          next unless $isAdmin || $this->hasAccess("VIEW", $topicName, $topicObj, $wikiName);
 
           my %initial = map {$_ => $obj->fastget($_)} $obj->getKeys();
           my $map = new Foswiki::Contrib::DBCacheContrib::MemMap( initial => \%initial);
@@ -306,49 +322,13 @@ sub dbQuery {
       }
     } else {
       if (!$search || $search->matches($topicObj, {webDB=>$this})) {
+        next unless $isAdmin || $this->hasAccess("VIEW", $topicName, $topicObj, $wikiName);
         $hits->add($this->{web}, $topicName, $topicObj);
       }
     }
   }
 
   return $hits;
-}
-
-sub _hasViewAccess {
-  my ($this, $topic, $obj, $wikiName) = @_;
-
-  $wikiName //= Foswiki::Func::getWikiName();
-  my $webViewPermission = $this->_hasWebViewAccess($wikiName);
-
-  my $topicHasPerms = 0;
-  my $prefs = $obj->fastget('preferences');
-  if (defined($prefs)) {
-    foreach my $key ($prefs->getKeys()) {
-      if ($key =~ /^(ALLOW|DENY)TOPICVIEW/) {
-        $topicHasPerms = 1;
-        last;
-      }
-    }
-  }
-
-  # don't check access perms on a topic that does not contain any
-  # WARNING: this is hardcoded to assume Foswiki-Core permissions - anyone
-  # doing pluggable Permissions need to
-  # work out howto abstract this concept - or to disable it (its worth about 400ms per topic in the set. (if you're not WikiAdmin))
-  return
-    (!$topicHasPerms && $webViewPermission) || ($topicHasPerms && $this->checkAccessPermission('VIEW', $wikiName, $obj)) ? 1 : 0;
-}
-
-sub _hasWebViewAccess {
-  my ($this, $wikiName) = @_;
-
-  $wikiName //= Foswiki::Func::getWikiName();
-
-  unless (defined $this->{webViewPermission}{$wikiName}) {
-    $this->{webViewPermission}{$wikiName} = Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, undef, $this->{web})?1:0;
-  }
-
-  return $this->{webViewPermission}{$wikiName};
 }
 
 ###############################################################################
@@ -367,7 +347,7 @@ sub expandPath {
     return Foswiki::Func::getWikiName($author);
   }
 
-  if ($thePath =~ /^(.*?) and (.*)$/) {
+  if ($thePath =~ /^(.*?)\s+and\s+(.*)$/) {
     my $first = $1;
     my $tail = $2;
     my $result1 = $this->expandPath($theRoot, $first);
@@ -425,7 +405,7 @@ sub expandPath {
     return $thePath;
   }
 
-  if ($thePath =~ /^(.*?) or (.*)$/) {
+  if ($thePath =~ /^(.*?)\s+or\s+(.*)$/) {
     my $first = $1;
     my $tail = $2;
     my $result = $this->expandPath($theRoot, $first);
@@ -501,17 +481,62 @@ sub expandPath {
 }
 
 ###############################################################################
-# a variation reading acls from cache instead from raw txt
-sub checkAccessPermission {
-  my ($this, $mode, $user, $topic) = @_;
+sub hasAccess {
+  my ($this, $mode, $topic, $obj, $wikiName) = @_;
+ 
+  #print STDERR "called hasAccess($mode, $topic, $wikiName)\n"; 
+  $obj //= $this->fastget($topic);
+  return unless $obj;
 
-  #print STDERR "called checkAccessPermission($mode, $user, $topic) ... ";
+  $wikiName //= Foswiki::Func::getWikiName();
+  my $webViewPermission = $this->hasWebAccess($mode, $wikiName);
+  #print STDERR "webViewPermission=$webViewPermission\n";
+
+  my $topicHasPerms = 0;
+  my $prefs = $obj->fastget('preferences');
+  if (defined($prefs)) {
+    foreach my $key ($prefs->getKeys()) {
+      if ($key =~ /^(ALLOW|DENY)TOPIC$mode/) {
+        $topicHasPerms = 1;
+        last;
+      }
+    }
+  }
+  #print STDERR "topicHasPerms=$topicHasPerms\n";
+
+  # don't check access perms on a topic that does not contain any
+  # WARNING: this is hardcoded to assume Foswiki-Core permissions - anyone
+  # doing pluggable Permissions need to
+  # work out howto abstract this concept - or to disable it (its worth about 400ms per topic in the set. (if you're not WikiAdmin))
+  return $webViewPermission unless $topicHasPerms;
+  return $this->hasTopicAccess($mode, $wikiName, $obj);
+}
+
+###############################################################################
+sub hasWebAccess {
+  my ($this, $mode, $wikiName) = @_;
+
+  $wikiName //= Foswiki::Func::getWikiName();
+
+  unless (defined $this->{webViewPermission}{$wikiName}) {
+    $this->{webViewPermission}{$wikiName} = Foswiki::Func::checkAccessPermission($mode, $wikiName, undef, undef, $this->{web})?1:0;
+  }
+
+  return $this->{webViewPermission}{$wikiName};
+}
+
+###############################################################################
+# a variation reading acls from cache instead from raw txt
+sub hasTopicAccess {
+  my ($this, $mode, $user, $obj) = @_;
+
+  #print STDERR "called hasTopicAccess($mode, $user) ... \n";
 
   my $cUID;
   my $session = $Foswiki::Plugins::SESSION;
   my $users = $session->{users};
 
-  if (defined $cUID) {
+  if (defined $user) {
     $cUID = Foswiki::Func::getCanonicalUserID($user)
       || Foswiki::Func::getCanonicalUserID($Foswiki::cfg{DefaultUserLogin});
   } else {
@@ -524,8 +549,8 @@ sub checkAccessPermission {
 
   $mode = uc($mode);
 
-  my $allow = $this->getACL($topic, 'ALLOWTOPIC' . $mode);
-  my $deny = $this->getACL($topic, 'DENYTOPIC' . $mode);
+  my $allow = $this->getACL($obj, 'ALLOWTOPIC' . $mode);
+  my $deny = $this->getACL($obj, 'DENYTOPIC' . $mode);
 
   my $isDeprecatedEmptyDeny =
     !defined($Foswiki::cfg{AccessControlACL}{EnableDeprecatedEmptyDeny}) || $Foswiki::cfg{AccessControlACL}{EnableDeprecatedEmptyDeny};
@@ -534,7 +559,7 @@ sub checkAccessPermission {
   if (defined($deny)) {
     if (scalar(@$deny) != 0) {
       if ($users->isInUserList($cUID, $deny)) {
-        #print STDERR "1: DENY user=$user mode=$mode topic=".$topic->fastget('name'). "\n";
+        #print STDERR "1: DENY user=$user mode=$mode topic=".$obj->fastget('name'). "\n";
         return 0;
       }
     } else {
@@ -562,7 +587,7 @@ sub checkAccessPermission {
       return 1;
     }
 
-    #print STDERR "5: DENY user=$user mode=$mode topic=".$topic->fastget('name'). "\n";
+    #print STDERR "5: DENY user=$user mode=$mode topic=".$obj->fastget('name'). "\n";
     return 0;
   }
 
@@ -571,16 +596,16 @@ sub checkAccessPermission {
 
 ###############################################################################
 sub getACL {
-  my ($this, $topic, $mode) = @_;
+  my ($this, $obj, $mode) = @_;
 
-  unless (ref($topic)) {
-    $topic = $this->fastget($topic);
+  unless (ref($obj)) {
+    $obj = $this->fastget($obj);
   }
 
-  return unless defined $topic;
+  return unless defined $obj;
 
-  my $text = $this->getPreference($topic, $mode);
-  #print STDERR "getACL($topic, $mode), text=".($text||'')."\n";
+  my $text = $this->getPreference($obj, $mode);
+  #print STDERR "getACL(".$obj->fastget("name").", $mode), text=".($text||'')."\n";
   return unless defined $text;
 
   # Remove HTML tags (compatibility, inherited from Users.pm
@@ -600,15 +625,15 @@ sub getACL {
 
 ###############################################################################
 sub getPreference {
-  my ($this, $topic, $key) = @_;
+  my ($this, $obj, $key) = @_;
 
-  unless (ref($topic)) {
-    $topic = $this->fastget($topic);
+  unless (ref($obj)) {
+    $obj = $this->fastget($obj);
   }
 
-  return unless defined $topic;
+  return unless defined $obj;
 
-  my $prefs = $topic->fastget('preferences');
+  my $prefs = $obj->fastget('preferences');
 
   return unless defined $prefs;
 

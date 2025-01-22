@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2024 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -72,6 +72,11 @@ sub new {
       $this->{doRefresh} = 3;
       %webDB = ();
     }
+
+    # need to nuke local acl caches
+    foreach my $db (values %webDB) {
+      $db->clearACLCache();
+    }
   } else {
     %webDB = ();
   }
@@ -94,7 +99,7 @@ sub afterSaveHandler {
     return;
   }
 
-  $db->loadTopic($web, $topic);
+  $db->loadTopic($web, $topic, 2);
 
   if ($web ne $newWeb) {
     $db = $this->getDB($newWeb);
@@ -103,7 +108,7 @@ sub afterSaveHandler {
       return;
     }
   }
-  $db->loadTopic($newWeb, $newTopic) if $web ne $newWeb || $topic ne $newTopic;
+  $db->loadTopic($newWeb, $newTopic, 2) if $web ne $newWeb || $topic ne $newTopic;
 
   # set the internal loadTime counter to the latest modification
   # time on disk.
@@ -112,14 +117,14 @@ sub afterSaveHandler {
 
 ###############################################################################
 sub loadTopic {
-  my ($this, $web, $topic) = @_;
+  my ($this, $web, $topic, $refresh) = @_;
 
   my $db = $this->getDB($web);
   unless ($db) {
     print STDERR "WARNING: DBCachePlugin can't get cache for web '$web'\n";
     return;
   }
-  return $db->loadTopic($web, $topic);
+  return $db->loadTopic($web, $topic, $refresh);
 }
 
 ###############################################################################
@@ -139,30 +144,28 @@ sub handleNeighbours {
   my $theOrder = $params->{sort} || $params->{order} || 'created';
   my $theReverse = $params->{reverse} || 'off';
   my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
+  my $theNullFormat = $params->{nullformat} || '';
+  my @theTopics = split(/\s*,\s*/, $params->{topics} || '');
 
-  unless ($theSearch) {
-    return $doWarnings ? lineError("ERROR: no \"search\" parameter in DBPREV/DBNEXT") : "";
-  }
+  return $doWarnings ? _inlineError("ERROR: no \"search\" parameter in DBPREV/DBNEXT") : "" unless $theSearch;
 
   #_writeDebug('theFormat='.$theFormat);
   #_writeDebug('theSearch='. $theSearch) if $theSearch;
 
   my $db = $this->getDB($theWeb);
-  unless ($db) {
-    return $doWarnings ? _inlineError("ERROR: DBPREV/DBNEXT unknown web '$theWeb'") : "";
-  }
+  return $doWarnings ? _inlineError("ERROR: DBPREV/DBNEXT unknown web '$theWeb'") : "" unless $db;
 
-  my ($prevTopic, $nextTopic) = $db->getNeighbourTopics($theTopic, $theSearch, $theOrder, $theReverse);
+  my ($prevTopic, $nextTopic) = $db->getNeighbourTopics($theTopic, $theSearch, $theOrder, $theReverse, \@theTopics);
 
   my $result = $theFormat;
 
   if ($mode) {
     # DBPREV
-    return '' unless $prevTopic;
+    return $theNullFormat unless $prevTopic;
     $result =~ s/\$topic/$prevTopic/g;
   } else {
     # DBNEXT
-    return '' unless $nextTopic;
+    return $theNullFormat unless $nextTopic;
     $result =~ s/\$topic/$nextTopic/g;
   }
 
@@ -254,6 +257,7 @@ sub handleDBQUERY {
   my $theNewline = $params->{newline};
   my $theContext = $params->{context};
   my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
+  my $doAbsoluteUrls = Foswiki::Func::isTrue($params->{absoluteurls}, 0);
   my $theDateLanguage = $params->{datelanguage} // $session->i18n->language() // 'en';
 
   $theFormat = '$topic' unless defined $theFormat;
@@ -338,12 +342,17 @@ sub handleDBQUERY {
     return "" if $theHideNull;
   }
 
+  my $context = Foswiki::Func::getContext();
+  my $initialAbsoluteUrls = $context->{absolute_urls};
+  $context->{absolute_urls} = 1 if $doAbsoluteUrls;
+
   # format
   my @result = ();
   if ($theFormat && $hits) {
     my $index = $hits->skip($theSkip);
     my $lastWeb = '';
     my $theDB;
+    my $percntRegex = qr/%/;
     while (my $obj = $hits->next) {
       $index++;
 
@@ -383,8 +392,15 @@ sub handleDBQUERY {
         my $temp = $1;
         $temp = $theDB->expandPath($obj, $temp);
         $temp =~ s#\)#${TranslationToken}#g;
-        $temp = Foswiki::Func::expandCommonVariables($temp, $topicName, $web);
+        $temp = Foswiki::Func::expandCommonVariables($temp, $topicName, $web) if $temp =~ $percntRegex;
         $temp = Foswiki::Func::renderText($temp, $web, $topicName);
+        $temp/ge;
+      $line =~ s/\$htmlEncode\((.*?)\)/
+        my $temp = $1;
+        $temp = $theDB->expandPath($obj, $temp);
+        $temp = Foswiki::Func::expandCommonVariables($temp, $topicName, $web) if $temp =~ $percntRegex;
+        $temp = Foswiki::Func::renderText($temp, $web, $topicName);
+        $temp = _rss($temp, $web, $topicName);
         $temp/ge;
       $line =~ s/\$d2n\((.*?)\)/Foswiki::Contrib::DBCacheContrib::parseDate($theDB->expandPath($obj, $1))||0/ge;
       $line =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($obj, $1), $2, {language => $theDateLanguage})/ge;    # single quoted
@@ -421,6 +437,7 @@ sub handleDBQUERY {
   $text = _expandFormatTokens($text);
 
   $this->fixInclude($thisWeb, $text) if $theRemote;
+  delete $context->{absolute_urls} unless $initialAbsoluteUrls;
 
   return $text;
 }
@@ -579,7 +596,7 @@ sub handleDBCALL {
   my $wikiName = Foswiki::Func::getWikiName();
 
   #unless (Foswiki::Func::checkAccessPermission('VIEW', $wikiName, undef, $thisTopic, $thisWeb)) {
-  unless ($thisDB->checkAccessPermission('VIEW', $wikiName, $topicObj)) {
+  unless ($thisDB->hasAccess("VIEW", $thisTopic, $topicObj, $wikiName, )) {
     return $doWarnings ? _inlineError("ERROR: DBCALL access to '$thisWeb.$thisTopic' denied") : "";
   }
 
@@ -630,6 +647,11 @@ sub handleDBCALL {
   foreach my $key (keys %$params) {
     $sectionText =~ s/%$key%/$params->{$key}/g;
   }
+
+  my $encode = $params->{encode} // "off";
+  $sectionText = _entityEncode($sectionText) if $encode =~ /^(on|entity|html)$/;
+  $sectionText = _urlEncode($sectionText) if $encode eq 'url';
+  $sectionText = _quotesEncode($sectionText) if $encode eq 'quote';
 
   # expand
   my $context = Foswiki::Func::getContext();
@@ -738,7 +760,7 @@ sub handleDBSTATS {
 
   foreach my $web (@webs) {
     my $theDB = $this->getDB($web);
-    return _inlineError("ERROR: DBSTATS can't find web '$web'") unless $theDB;
+    return next unless $theDB;
 
     my @topicNames;
     if ($thisTopics) {
@@ -750,12 +772,12 @@ sub handleDBSTATS {
       my $topicObj = $theDB->fastget($topicName);
       next unless $topicObj;
       next if $search && !$search->matches($topicObj);    # that match the query
-      next unless $theDB->checkAccessPermission('VIEW', $wikiName, $topicObj);
+      next unless $theDB->hasAccess('VIEW', $wikiName, $topicObj);
 
       my $fullTopicName = $isMultipleWebs ? "$web.$topicName" : $topicName;
       #_writeDebug("found topic $topicName");
       my $createDate = $topicObj->fastget('createdate');
-      my $modified = $topicObj->get('info.date');
+      my $modified = $topicObj->get('info.date') || 0;
       my $publishDate = $topicObj->get('publishdate') || 0;
       foreach my $field (split(/\s*,\s*/, $theFields)) {    # loop over all fields
 
@@ -771,11 +793,8 @@ sub handleDBSTATS {
           $command =~ s/\$topic\b/$topicName/g;
           $command =~ s/\$web\b/$web/g;
 
-          if ($command =~ /%/) {
-            $fieldValue = Foswiki::Func::expandCommonVariables($command, $topicName, $web);
-          } else {
-            $fieldValue = $command;
-          }
+          $fieldValue = $command;
+          $fieldValue = Foswiki::Func::expandCommonVariables($fieldValue, $topicName, $web) if $fieldValue =~ /%/;
 
         } else {
           $fieldValue = _formatTime($fieldValue, $theDateFormat, {language => $theDateLanguage} ) if $field =~ /created(ate)?|modified|publishdate/;
@@ -787,10 +806,7 @@ sub handleDBSTATS {
           $weight = Foswiki::Func::decodeFormatTokens($weight);
           $weight =~ s/\$topic\b/$topicName/g;
           $weight =~ s/\$web\b/$web/g;
-
-          if ($weight =~ /%/) {
-            $weight = Foswiki::Func::expandCommonVariables($weight, $topicName, $web);
-          }
+          $weight = Foswiki::Func::expandCommonVariables($weight, $topicName, $web) if $weight =~ /%/;
         }
         $weight = 1 unless defined $weight && $weight =~ /^\d+$/;
 
@@ -1464,7 +1480,7 @@ sub _rss {
   $text =~ s/<nop>//g;
   $text =~ s/[\n\r]+/ /g;
   $text =~ s/\n*<\/?noautolink>\n*//g;
-  $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>@[_\|])/'&#'.ord($1).';'/ge;
+  $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>@[_\|\\])/'&#'.ord($1).';'/ge;
   $text =~ s/^\s+|\s+$//gs;
 
   return $text;
@@ -1516,15 +1532,6 @@ sub _entityDecode {
   my $text = shift;
 
   $text =~ s/&#(\d+);/chr($1)/ge;
-  return $text;
-}
-
-###############################################################################
-sub _quoteEncode {
-  my $text = shift;
-
-  $text =~ s/\"/\\"/g;
-
   return $text;
 }
 

@@ -1,6 +1,6 @@
 # Plugin for Foswiki - The Free and Open Source Wiki, http://foswiki.org/
 #
-# Copyright (C) 2005-2024 Michael Daum http://michaeldaumconsulting.com
+# Copyright (C) 2005-2025 Michael Daum http://michaeldaumconsulting.com
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -42,6 +42,7 @@ sub new {
   $this->{_position} = 0; # position within sort index while iterating
   $this->{_count} = 0; # number of items in hit set
   $this->{_objects} = {}; # hash of objects being sorted
+  $this->{_isMultiKey} = {}; # hash of booleans indicating whether a property is a multi key
   $this->{_isNumerical} = {}; # hash of booleans indicating whether a property is numerical
   $this->{_isReverse} = undef; # hash of booleans indicating whether a property is sorted in reverse
   $this->{_propValue} = {}; # hashes of properties extracted from objects
@@ -57,6 +58,7 @@ sub DESTROY {
   my $this = shift;
 
   undef $this->{_objects};
+  undef $this->{_isMultiKey};
   undef $this->{_isNumerical};
   undef $this->{_isReverse};
   undef $this->{_propValue};
@@ -80,6 +82,7 @@ sub add {
       $propName => $name
     };
     $this->{_isNumerical}{$propName} = 0;
+    $this->{_isMultiKey}{$propName} = 0;
     push @{$this->{_propNames}}, $propName;
   }
 
@@ -90,17 +93,23 @@ sub add {
       $propName => $obj->fastget('createdate')
     };
     $this->{_isNumerical}{$propName} = 1;
+    $this->{_isMultiKey}{$propName} = 0;
     push @{$this->{_propNames}}, $propName;
   }
 
   # sort by date
   elsif ($this->{sorting} =~ /^((modified|info\.date))$/) {
     my $propName = $1;
-    my $info = $obj->fastget('info');
+    my $date = $obj->fastget($propName); # first try directly
+    unless (defined $date) {
+      my $info = $obj->fastget('info'); # then use the topicinfo
+      $date = $info ? $info->fastget('date') : 0
+    }
     $this->{_propValue}{$key} = {
-      $propName => $info ? $info->fastget('date') : 0
+      $propName => $date || 0
     };
     $this->{_isNumerical}{$propName} = 1;
+    $this->{_isMultiKey}{$propName} = 0;
     push @{$this->{_propNames}}, $propName;
   }
 
@@ -112,6 +121,7 @@ sub add {
     };
     push @{$this->{_propNames}}, $propName;
     $this->{_isNumerical}{$propName} = 1;
+    $this->{_isMultiKey}{$propName} = 0;
     push @{$this->{_propNames}}, $propName;
   }
 
@@ -122,6 +132,7 @@ sub add {
       $propName => $this->{_count}
     };
     $this->{_isNumerical}{$propName} = 1;
+    $this->{_isMultiKey}{$propName} = 0;
     push @{$this->{_propNames}}, $propName;
   }
 
@@ -142,19 +153,23 @@ sub add {
       my $val = $this->_expandPath($web, $obj, $prop) // '';
       push @{$this->{_propNames}}, $prop;
 
-      $this->{_isNumerical}{$prop} //= 1;
-      if ($this->{_isNumerical}{$prop}) {
+      $this->{_isNumerical}{$prop} //= 0;
+      $this->{_isMultiKey}{$prop} //= 0;
 
-	# try to interpret it as a date
-	unless ($val eq '' || $val =~ /^[+-]?\d+(\.\d+)?$/) {
-	  my $epoch = Foswiki::Time::parseTime($val);
+      if ($val ne "") {
+        if ( $val =~ /^[+-]?\d+(\.\d+)?$/) {
+          $this->{_isNumerical}{$prop} = 1;
+        } elsif ($val =~ /^(\w(.\w+)+)|\d+$/) {
+          $this->{_isMultiKey}{$prop} = 1;
+          $this->{_isNumerical}{$prop} = 0;
+        } else {
+          my $epoch = Foswiki::Time::parseTime($val);
 
-	  if (defined $epoch) {
-	    $val = $epoch;
-	  } else {
-	    $this->{_isNumerical}{$prop} = 0;
-	  }
-	}
+          if (defined $epoch) {
+            $val = $epoch;
+            $this->{_isNumerical}{$prop} = 1;
+          }
+        }
       }
 
       my $rec = $this->{_propValue}{$key} || {};
@@ -215,9 +230,11 @@ sub compare {
   my $valA = $this->{_propValue}{$a}{"$prop"};
   my $valB = $this->{_propValue}{$b}{"$prop"};
 
-  #print STDERR "prop=$prop, isNumerical=$this->{_isNumerical}{$prop}, isReverse=$this->{_isReverse}{$prop}\n";
+  #print STDERR "prop=$prop, isNumerical=$this->{_isNumerical}{$prop}, isMultiKey=$this->{_isMultiKey}{$prop}, isReverse=$this->{_isReverse}{$prop}\n";
   my $result;
-  if ($this->{_isNumerical}{$prop}) {
+  if ($this->{_isMultiKey}{$prop}) {
+    $result = ($this->{_isReverse}{$prop}) ? multiKeyCmp($valB, $valA) : multiKeyCmp($valA, $valB);
+  } elsif ($this->{_isNumerical}{$prop}) {
     # sort undefined values to the end
     if ($this->{_isReverse}{$prop}) {
       $valA = 0 if !defined($valA) || $valA eq ''; # a large int
@@ -231,16 +248,44 @@ sub compare {
   } else {
     $valA //= '';
     $valB //= '';
-    if ($this->{_isReverse}{$prop}) {
-      $result = $valB cmp $valA;
-    } else {
-      $result = $valA cmp $valB;
-    }
+    $result  = ($this->{_isReverse}{$prop}) ? $valB cmp $valA : $valA cmp $valB;
   }
 
   #print STDERR "a=$a, b=$b, valA=$valA, valB=$valB, prop=$prop, result=$result\n";
 
   return $result == 0 ? $this->compare($a, $b, $index+1): $result;
+}
+
+# from https://metacpan.org/dist/Sort-Versions/source/lib/Sort/Versions.pm
+sub multiKeyCmp {
+  my @A = ($_[0] =~ /([-.]|\d+|[^-.\d]+)/g);
+  my @B = ($_[1] =~ /([-.]|\d+|[^-.\d]+)/g);
+
+  my ($A, $B);
+  while (@A and @B) {
+    $A = shift @A;
+    $B = shift @B;
+    if ($A eq '-' and $B eq '-') {
+      next;
+    } elsif ($A eq '-') {
+      return -1;
+    } elsif ($B eq '-') {
+      return 1;
+    } elsif ($A eq '.' and $B eq '.') {
+      next;
+    } elsif ($A eq '.') {
+      return -1;
+    } elsif ($B eq '.') {
+      return 1;
+    } elsif ($A =~ /^\d+$/ and $B =~ /^\d+$/) {
+      return $A <=> $B if $A <=> $B;
+    } else {
+      $A = uc $A;
+      $B = uc $B;
+      return $A cmp $B if $A cmp $B;
+    }
+  }
+  @A <=> @B;
 }
 
 sub count {
