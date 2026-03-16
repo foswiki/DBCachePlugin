@@ -248,7 +248,7 @@ sub getNeighbourTopics {
     }
 
     $prevTopic = '_notfound' if !$prevTopic || $state == 0;
-    $nextTopic = '_notfound' if !$nextTopic || !$state == 2;
+    $nextTopic = '_notfound' if !$nextTopic || $state != 2;
     $this->{prevTopicCache}{$key} = $prevTopic;
     $this->{nextTopicCache}{$key} = $nextTopic;
 

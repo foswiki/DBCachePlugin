@@ -128,6 +128,29 @@ sub loadTopic {
 }
 
 ###############################################################################
+sub getRevisionInfo {
+  my ($this, $web, $topic) = @_;
+
+  my $db = $this->getDB($web);
+  return unless $db;
+
+  my $obj = $db->fastget($topic);
+  return unless $obj;
+
+  my $info = $obj->fastget("info");
+  return unless $info;
+
+  my $rev = $info->fastget("version");
+
+  return wantarray ? (
+    $info->fastget("date"),
+    $info->fastget("author"),
+    $rev,
+    $info->fastget("comment"),
+  ) : $rev;
+}
+
+###############################################################################
 sub handleNeighbours {
   my ($this, $mode, $session, $params, $topic, $web) = @_;
 
@@ -404,9 +427,11 @@ sub handleDBQUERY {
         $temp/ge;
       $line =~ s/\$d2n\((.*?)\)/Foswiki::Contrib::DBCacheContrib::parseDate($theDB->expandPath($obj, $1))||0/ge;
       $line =~ s/\$formatTime\((.*?)(?:,\s*'([^']*?)')?\)/_formatTime($theDB->expandPath($obj, $1), $2, {language => $theDateLanguage})/ge;    # single quoted
+      $line =~ s/\$wikiName\((.*?)\)/_wikiName($theDB->expandPath($obj, $1))/ge;
       $line =~ s/\$topic/$topicName/g;
       $line =~ s/\$web/$web/g;
       $line =~ s/\$index/$index/g;
+      $line =~ s/\$summary\b/_summarizeText($web, $topicName)/ge;
       $line =~ s/\$flatten\((.*?)\)/_flatten($1, $web, $thisTopic)/ges;
       $line =~ s/\$rss\((.*?)\)/_rss($1, $web, $thisTopic)/ges;
       $line =~ s/\$translate\((.*?)\)/_translate($1, $theWeb, $theTopic)/ges;
@@ -1218,13 +1243,14 @@ sub getDB {
 
   if ($isModified || $refresh ) {
     if ($this->{_reloading}{$theWeb}) { # prevent infinite recursion
-      print STDERR "WARNING: already reloading $theWeb\n";
+      #print STDERR "WARNING: already reloading $theWeb\n";
     } else {
       $this->{_reloading}{$theWeb} = 1;
 
       _writeDebug("need to load again, isModified=$isModified, refresh=$refresh");
-      $db = $webDB{$webKey} = $this->newDB($theWeb);
+      $db = $this->newDB($theWeb);
       $db->load($refresh);
+      $webDB{$webKey} = $db;
 
       my $session = $Foswiki::Plugins::SESSION;
       my $baseWeb = $session->{webName};
@@ -1555,17 +1581,37 @@ sub _urlDecode {
 }
 
 ###############################################################################
-sub _flatten {
-  my ($text, $web, $topic) = @_;
+sub _summarizeText {
+  my ($web, $topic) = @_;
 
   my $session = $Foswiki::Plugins::SESSION;
-  my $topicObject = Foswiki::Meta->new($session, $web, $topic);
-  $text = $session->renderer->TML2PlainText($text, $topicObject);
+  my $meta = Foswiki::Meta->new($session, $web, $topic);
+  my $text = $meta->text();
+
+  $text = _flatten($text, $web, $topic, $meta);
+  $text = substr($text, 0, 162) . "..." if length($text) > 162;
+
+  return $text;
+}
+
+###############################################################################
+sub _flatten {
+  my ($text, $web, $topic, $meta) = @_;
+
+  my $session = $Foswiki::Plugins::SESSION;
+  $meta //= Foswiki::Meta->new($session, $web, $topic);
+  $text = $session->renderer->TML2PlainText($text, $meta);
 
   $text =~ s/(https?)/<nop>$1/g;
   $text =~ s/[\r\n\|]+/ /gm;
   $text =~ s/!!//g;
   return $text;
+}
+###############################################################################
+sub _wikiName {
+  my $uid = shift;
+
+  return Foswiki::Func::getWikiName($uid);
 }
 
 ###############################################################################

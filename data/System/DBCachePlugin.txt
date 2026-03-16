@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1737569858" format="1.1"  version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1773670237" format="1.1" version="1"}%
 ---+!! <nop>%TOPIC%
 %FORMFIELD{"Description"}%
 
@@ -140,9 +140,11 @@ Following variables are expanded in format strings:
    * $quotes(...): encode quotes in a string
    * $flatten(...): remove any special markup producing a flattened text representation
    * $trunc(...,length): truncate a string to the given length
+   * $summary: the first 162 chars of the topic text (flattened)
    * $uc(...): converts a string to upper case
    * $lc(...): converts a string to lower case
    * $translate(...): translate a string using Foswiki's internal I18N or [[https://foswiki.org/Extensions/MultiLingualPlugin][MultiLingualPlugin]] if installed
+   * $wikiName(...): get the wikiname of a user id
 
 *Formfield accessors:*
 
@@ -225,6 +227,7 @@ Compute and format a statistics on the database.
 | ="&lt;search>"= | query string that defines a search, see DBCacheContrib |
 | =web="..."= | the web where to search in (default: current web) |
 | =webs="..."= | list of webs where to search in (default: web specified in =web= parameter) |
+| =topics="..."= | set of topics to consult (default: all topics in the given web(s)) |
 | =field(s)="..."= | name of one or more formfields to be extracted (default: "text") |
 | =process="..."= | macro being used to post-process field values extracted from the database; macro are escaped using standard format tokens (=$percnt=, =$dollar=, etc); \
                     the result is used instead of the direct field value; when extracting multiple =fields=, specific process statements might be specified using \
@@ -240,7 +243,7 @@ Compute and format a statistics on the database.
 | =format="..."= | format string used for each key in the output |
 | =sep(arator)="..."= | separator to put between formatted keys |
 | =footer="..."= | footer format string to be appended to the output |
-| =sort="alpha,created,num"= | order of keys in the output |
+| =sort="alpha,created,num,count,modifiedfrom,modifiedto"= | order of keys in the output |
 | =reverse="on,off"= | sort keys descending or ascending |
 | =limit="..."= | maximum number of keys to be formatted in the output |
 | =hidenull="..."= | flag to indicate that an empty hit set should not be displayed |
@@ -500,6 +503,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  11 Nov 2025: | added ="$summary= token to =%DBQUERY= |
 |  22 Jan 2025: | new multi-key sorting of search results; \
                   added =absoluteurls= to =%DBQUERY=; \
                   added =encode= to =%DBCALL= |
