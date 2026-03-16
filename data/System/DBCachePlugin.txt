@@ -503,7 +503,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
-|  11 Nov 2025: | added ="$summary= token to =%DBQUERY= |
+|  11 Nov 2025: | added ="$summary= and =$wikiName()= token to =%DBQUERY= |
 |  22 Jan 2025: | new multi-key sorting of search results; \
                   added =absoluteurls= to =%DBQUERY=; \
                   added =encode= to =%DBCALL= |
@@ -678,7 +678,7 @@ automatically from there on.
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/DBCachePlugin"}%
-%META:FIELD{name="Copyright" title="Copyright" value="2005-2025, Michael Daum"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2005-2026, Michael Daum"}%
 %META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
 %META:FIELD{name="Home" title="Home" value="Foswiki:Extensions/%25TOPIC%25"}%
 %META:FIELD{name="Support" title="Support" value="Foswiki:Support/%25TOPIC%25"}%
