@@ -13,7 +13,6 @@
 # GNU General Public License for more details, published at
 # http://www.gnu.org/copyleft/gpl.html
 #
-###############################################################################
 
 package Foswiki::Plugins::DBCachePlugin::Hits;
 

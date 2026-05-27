@@ -25,7 +25,7 @@ use Foswiki::Plugins();
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::Core');
 #Monitor::MonitorMethod('Foswiki::Contrib::DBCachePlugin::WebDB');
 
-our $VERSION = '17.10';
+our $VERSION = '18.00';
 our $RELEASE = '%$RELEASE%';
 our $NO_PREFS_IN_TOPIC = 1;
 our $SHORTDESCRIPTION = 'Lightweighted frontend to the <nop>DBCacheContrib';
@@ -37,7 +37,6 @@ our @isEnabledSaveHandler = ();
 our @isEnabledRenameHandler = ();
 our @knownIndexTopicHandler = ();
 
-###############################################################################
 # plugin initializer
 sub initPlugin {
 
@@ -85,6 +84,12 @@ sub initPlugin {
     http_allow => 'GET,POST',
   );
 
+  Foswiki::Func::registerRESTHandler('testCache', \&restTestCache, 
+    authenticate => 1,
+    validate => 0,
+    http_allow => 'GET,POST',
+  );
+
   Foswiki::Func::registerRESTHandler('dbdump', sub {
     return getCore()->Foswiki::Plugins::DBCachePlugin::Core::restDBDUMP(@_);
   }, 
@@ -93,22 +98,12 @@ sub initPlugin {
     http_allow => 'GET,POST',
   );
 
-  # SMELL: remove this when Foswiki::Cache got into the core
-  my $cache = $Foswiki::Plugins::SESSION->{cache}
-    || $Foswiki::Plugins::SESSION->{cache};
-  if (defined $cache) {
-    $addDependency = \&addDependencyHandler;
-  } else {
-    $addDependency = \&nullHandler;
-  }
-
   @isEnabledSaveHandler = ();
   @isEnabledRenameHandler = ();
 
   return 1;
 }
 
-###############################################################################
 sub finishPlugin {
 
   my $session = $Foswiki::Plugins::SESSION;
@@ -120,7 +115,6 @@ sub finishPlugin {
   undef $core;
 }
 
-###############################################################################
 sub getCore {
   unless (defined $core) {
     require Foswiki::Plugins::DBCachePlugin::Core;
@@ -129,7 +123,6 @@ sub getCore {
   return $core;
 }
 
-###############################################################################
 # REST handler to create and update the dbcache
 sub restUpdateCache {
   my $session = shift;
@@ -150,32 +143,60 @@ sub restUpdateCache {
   }
 }
 
-###############################################################################
+# REST handler testing all topics for existence in cache
+sub restTestCache {
+  my $session = shift;
+
+  my $context = Foswiki::Func::getContext();
+  return unless $context->{command_line};
+  
+  my $query = Foswiki::Func::getRequestObject();
+  my $theWeb = $query->param('web');
+  my @webs;
+
+  if ($theWeb) {
+    push @webs,$theWeb;
+  } else {
+    @webs = Foswiki::Func::getListOfWebs();
+  }
+
+  my $totalTopics = 0;
+  my $notFound = 0;
+  foreach my $web (sort @webs) {
+    #print STDERR "updating cache for $web\n";
+    my $db = getDB($web, 2);
+
+    foreach my $topic (Foswiki::Func::getTopicList($web)) {
+      $totalTopics++;
+      next if $db->fastget($topic);
+      print STDERR "ERROR: $web.$topic not found in dbcache\n";
+      $notFound++;
+    }
+  }
+
+  return "tested ".scalar(@webs). " web(s) and $totalTopics topic(s), $notFound topic(s) were missing\n\n";
+}
+
 sub disableSaveHandler {
   push @isEnabledSaveHandler, 1;
 }
 
-###############################################################################
 sub enableSaveHandler {
   pop @isEnabledSaveHandler;
 }
 
-###############################################################################
 sub disableRenameHandler {
   push @isEnabledRenameHandler, 1;
 }
 
-###############################################################################
 sub enableRenameHandler {
   pop @isEnabledRenameHandler;
 }
 
-###############################################################################
 sub loadTopic {
   return getCore()->loadTopic(@_);
 }
 
-###############################################################################
 # after save handlers
 sub afterSaveHandler {
   #my ($text, $topic, $web, $meta) = @_;
@@ -201,7 +222,6 @@ sub afterSaveHandler {
   return getCore()->afterSaveHandler($_[2], $_[1]);
 }
 
-###############################################################################
 # deprecated: use afterUploadSaveHandler instead
 sub afterAttachmentSaveHandler {
   #my ($attrHashRef, $topic, $web) = @_;
@@ -213,7 +233,6 @@ sub afterAttachmentSaveHandler {
   return getCore()->afterSaveHandler($_[2], $_[1]);
 }
 
-###############################################################################
 # Foswiki::Plugins::VERSION >= 2.1
 sub afterUploadHandler {
   my ($attrHashRef, $meta) = @_;
@@ -225,7 +244,6 @@ sub afterUploadHandler {
   return getCore()->afterSaveHandler($web, $topic);
 }
 
-###############################################################################
 # Foswiki::Plugins::VERSION >= 2.1
 sub afterRenameHandler {
   my ($web, $topic, $attachment, $newWeb, $newTopic, $newAttachment) = @_;
@@ -235,7 +253,6 @@ sub afterRenameHandler {
   return getCore()->afterSaveHandler($web, $topic, $newWeb, $newTopic, $attachment, $newAttachment);
 }
 
-###############################################################################
 # perl api
 sub getDB {
   return getCore()->getDB(@_);
@@ -249,13 +266,8 @@ sub registerIndexTopicHandler {
   push @knownIndexTopicHandler, shift;
 }
 
-###############################################################################
-# SMELL: remove this when Foswiki::Cache got into the core
-sub nullHandler { }
-
 sub addDependencyHandler {
-  my $cache = $Foswiki::Plugins::SESSION->{cache}
-    || $Foswiki::Plugins::SESSION->{cache};
+  my $cache = $Foswiki::Plugins::SESSION->{cache};
   return $cache->addDependency(@_) if $cache;
 }
 

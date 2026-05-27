@@ -23,7 +23,6 @@ our %webDB;
 our $TranslationToken = "\0";
 
 use constant TRACE => 0;    # toggle me
-use constant ENABLE_WEBDB_FEATURE => 0; # CAUTION: this is disabled by default for performance reasons when loading preferences from lots of webs 
 
 use Foswiki::Contrib::DBCacheContrib ();
 use Foswiki::Contrib::DBCacheContrib::Search ();
@@ -36,7 +35,6 @@ use Cwd;
 use Encode();
 use Error qw(:try);
 
-###############################################################################
 sub new {
   my $class = shift;
 
@@ -84,7 +82,6 @@ sub new {
   return $this;
 }
 
-###############################################################################
 sub afterSaveHandler {
   my ($this, $web, $topic, $newWeb, $newTopic, $attachment, $newAttachment) = @_;
 
@@ -115,7 +112,6 @@ sub afterSaveHandler {
   $db->getArchivist->updateCacheTime();
 }
 
-###############################################################################
 sub loadTopic {
   my ($this, $web, $topic, $refresh) = @_;
 
@@ -127,7 +123,6 @@ sub loadTopic {
   return $db->loadTopic($web, $topic, $refresh);
 }
 
-###############################################################################
 sub getRevisionInfo {
   my ($this, $web, $topic) = @_;
 
@@ -150,7 +145,6 @@ sub getRevisionInfo {
   ) : $rev;
 }
 
-###############################################################################
 sub handleNeighbours {
   my ($this, $mode, $session, $params, $topic, $web) = @_;
 
@@ -178,7 +172,10 @@ sub handleNeighbours {
   my $db = $this->getDB($theWeb);
   return $doWarnings ? _inlineError("ERROR: DBPREV/DBNEXT unknown web '$theWeb'") : "" unless $db;
 
+  $db->getTopics($params, \@theTopics);
+  $this->currentWeb($web);
   my ($prevTopic, $nextTopic) = $db->getNeighbourTopics($theTopic, $theSearch, $theOrder, $theReverse, \@theTopics);
+  $this->currentWeb("");
 
   my $result = $theFormat;
 
@@ -201,7 +198,6 @@ sub handleNeighbours {
   return $result;
 }
 
-###############################################################################
 sub handleCREATEAUTHOR {
   my ($this, $session, $params, $topic, $web) = @_;
 
@@ -229,7 +225,6 @@ sub handleCREATEAUTHOR {
   return  _expandFormatTokens($result);
 }
 
-###############################################################################
 sub handleCREATEDATE {
   my ($this, $session, $params, $topic, $web) = @_;
 
@@ -250,7 +245,6 @@ sub handleCREATEDATE {
   return  _expandFormatTokens($result);
 }
 
-###############################################################################
 sub handleDBQUERY {
   my ($this, $session, $params, $theTopic, $theWeb) = @_;
 
@@ -343,6 +337,8 @@ sub handleDBQUERY {
 
       my $theDB = $this->getDB($web);
       next unless $theDB;
+
+      $theDB->getTopics($params, \@topicNames);
 
       # flag the current web we evaluate this query in, used by web-specific operators
       $this->currentWeb($web);
@@ -467,7 +463,6 @@ sub handleDBQUERY {
   return $text;
 }
 
-###############################################################################
 # finds the correct topicfunction for this object topic.
 # this is constructed by checking for the existance of a topic derived from
 # the type information of the objec topic.
@@ -551,7 +546,6 @@ sub findTopicMethod {
   return;
 }
 
-###############################################################################
 sub handleDBCALL {
   my ($this, $session, $params, $theTopic, $theWeb) = @_;
 
@@ -702,7 +696,6 @@ sub handleDBCALL {
   #return "<verbatim>\n$sectionText\n</verbatim>";
 }
 
-###############################################################################
 sub handleDBSTATS {
   my ($this, $session, $params, $theTopic, $theWeb) = @_;
 
@@ -964,7 +957,6 @@ sub handleDBSTATS {
   return _expandFormatTokens($text);
 }
 
-###############################################################################
 sub handleDBDUMP {
   my ($this, $session, $params, $theTopic, $theWeb) = @_;
 
@@ -981,7 +973,6 @@ sub handleDBDUMP {
   return $this->dbDump($thisWeb, $thisTopic);
 }
 
-###############################################################################
 sub restDBDUMP {
   my ($this, $session) = @_;
 
@@ -991,7 +982,6 @@ sub restDBDUMP {
   return $this->dbDump($web, $topic);
 }
 
-###############################################################################
 sub dbDump {
   my ($this, $web, $topic) = @_;
 
@@ -1014,7 +1004,6 @@ sub dbDump {
   return $result . "\n</div></noautolink>\n";
 }
 
-###############################################################################
 sub handleDBRECURSE {
   my ($this, $session, $params, $theTopic, $theWeb) = @_;
 
@@ -1087,7 +1076,6 @@ sub handleDBRECURSE {
   return _expandFormatTokens($text);
 }
 
-###############################################################################
 sub formatRecursive {
   my ($this, $session, $theDB, $theWeb, $theTopic, $params, $seen, $depth, $number) = @_;
 
@@ -1110,7 +1098,10 @@ sub formatRecursive {
   $queryString =~ s/\$name\b/$theTopic/g;
 
   #_writeDebug("queryString=$queryString");
-  my $hits = $theDB->dbQuery($queryString, undef, $params->{sort}, $params->{reverse}, $params->{include}, $params->{exclude});
+  my $topicNames = $theDB->getTopics($params);
+  $this->currentWeb($theWeb);
+  my $hits = $theDB->dbQuery($queryString, $topicNames, $params->{sort}, $params->{reverse}, $params->{include}, $params->{exclude});
+  $this->currentWeb("");
 
   my $theDateLanguage = $params->{datelanguage} // $session->i18n->language() // 'en';
 
@@ -1185,7 +1176,6 @@ sub formatRecursive {
   return \@result;
 }
 
-###############################################################################
 sub getWebKey {
   my ($this, $web) = @_;
 
@@ -1207,7 +1197,6 @@ sub getWebKey {
   return $this->{webKeys}{$web};
 }
 
-###############################################################################
 sub getDB {
   my ($this, $theWeb, $refresh) = @_;
 
@@ -1248,16 +1237,17 @@ sub getDB {
       $this->{_reloading}{$theWeb} = 1;
 
       _writeDebug("need to load again, isModified=$isModified, refresh=$refresh");
-      $db = $this->newDB($theWeb);
+      $db = $webDB{$webKey} = Foswiki::Plugins::DBCachePlugin::WebDB->new($theWeb);
       $db->load($refresh);
-      $webDB{$webKey} = $db;
 
       my $session = $Foswiki::Plugins::SESSION;
       my $baseWeb = $session->{webName};
+      $baseWeb =~ s/\//./g;
       my $baseTopic = $session->{topicName};
       if ($baseWeb eq $theWeb) {
         $db->load($refresh, $baseWeb, $baseTopic);
       }
+
       $this->{_reloading}{$theWeb} = 0;
     }
   }
@@ -1265,27 +1255,6 @@ sub getDB {
   return $db;
 }
 
-###############################################################################
-sub newDB {
-  my ($this, $web) = @_;
-
-  my $impl;
-
-  if (ENABLE_WEBDB_FEATURE) { 
-    $impl = Foswiki::Func::getPreferencesValue('WEBDB', $web)
-      || 'Foswiki::Plugins::DBCachePlugin::WebDB';
-
-    $impl =~ s/^\s+//g;
-    $impl =~ s/\s+$//g;
-  } else {
-    $impl = 'Foswiki::Plugins::DBCachePlugin::WebDB';
-  }
-
-  #_writeDebug("loading new webdb for '$web'");
-  return $impl->new($web);
-}
-
-###############################################################################
 sub unloadDB {
   my ($this, $web) = @_;
 
@@ -1296,7 +1265,6 @@ sub unloadDB {
   delete $this->{isModifiedDB}{$web};
 }
 
-###############################################################################
 sub finish {
   my $this = shift;
 
@@ -1308,7 +1276,6 @@ sub finish {
   undef %webDB unless $Foswiki::cfg{DBCachePlugin}{MemoryCache};
 }
 
-###############################################################################
 # from Foswiki::_INCLUDE
 sub fixInclude {
   my $this = shift;
@@ -1333,7 +1300,6 @@ sub fixInclude {
   _putBackBlocks(\$_[0], $removed, 'noautolink');
 }
 
-###############################################################################
 # from Foswiki::fixIncludeLink
 sub fixIncludeLink {
   my ($this, $theWeb, $theLink, $theLabel) = @_;
@@ -1352,7 +1318,6 @@ sub fixIncludeLink {
   }
 }
 
-###############################################################################
 sub currentWeb {
   my ($this, $val) = @_;
 
@@ -1360,9 +1325,7 @@ sub currentWeb {
   return $this->{currentWeb};
 }
 
-###############################################################################
 # static methods
-###############################################################################
 sub _dbDump {
   my $obj = shift;
 
@@ -1383,7 +1346,6 @@ sub _dbDump {
   return "<verbatim>\n$obj\n</verbatim>";
 }
 
-###############################################################################
 sub _dbDumpList {
   my $list = shift;
 
@@ -1396,7 +1358,6 @@ sub _dbDumpList {
   return join(", ", @result);
 }
 
-###############################################################################
 sub _dbDumpHash {
   my $hash = shift;
 
@@ -1411,7 +1372,6 @@ sub _dbDumpHash {
   return $result . "</table>\n";
 }
 
-###############################################################################
 sub _dbDumpArray {
   my $array = shift;
 
@@ -1434,7 +1394,6 @@ sub _dbDumpArray {
   return $result . "</table>\n";
 }
 
-###############################################################################
 sub _dbDumpMap {
   my $map = shift;
 
@@ -1451,7 +1410,6 @@ sub _dbDumpMap {
   return $result . "</table>\n";
 }
 
-###############################################################################
 sub _expandFormatTokens {
   my $text = shift;
 
@@ -1470,7 +1428,6 @@ sub _expandFormatTokens {
   return $text;
 }
 
-###############################################################################
 sub _expandVariables {
   my ($text, $web, $topic, %params) = @_;
 
@@ -1483,7 +1440,6 @@ sub _expandVariables {
   return $text;
 }
 
-###############################################################################
 # fault tolerant wrapper
 sub _formatTime {
   my ($string, $format, $params) = @_;
@@ -1495,7 +1451,6 @@ sub _formatTime {
   return Foswiki::Func::formatTime($epoch, $format, undef, $params);
 }
 
-###############################################################################
 # used to encode rss feeds
 sub _rss {
   my ($text, $web, $topic) = @_;
@@ -1512,7 +1467,6 @@ sub _rss {
   return $text;
 }
 
-###############################################################################
 sub _translate {
   my ($string, $web, $topic) = @_;
 
@@ -1536,7 +1490,6 @@ sub _translate {
   return $result;
 }
 
-###############################################################################
 sub _quotesEncode {
   my $text = shift;
 
@@ -1544,7 +1497,6 @@ sub _quotesEncode {
   return $text;
 }
 
-###############################################################################
 sub _entityEncode {
   my $text = shift;
 
@@ -1553,7 +1505,6 @@ sub _entityEncode {
   return $text;
 }
 
-###############################################################################
 sub _entityDecode {
   my $text = shift;
 
@@ -1561,7 +1512,6 @@ sub _entityDecode {
   return $text;
 }
 
-###############################################################################
 sub _urlEncode {
   my $text = shift;
 
@@ -1571,7 +1521,6 @@ sub _urlEncode {
   return $text;
 }
 
-###############################################################################
 sub _urlDecode {
   my $text = shift;
 
@@ -1580,7 +1529,6 @@ sub _urlDecode {
   return $text;
 }
 
-###############################################################################
 sub _summarizeText {
   my ($web, $topic) = @_;
 
@@ -1594,7 +1542,6 @@ sub _summarizeText {
   return $text;
 }
 
-###############################################################################
 sub _flatten {
   my ($text, $web, $topic, $meta) = @_;
 
@@ -1607,14 +1554,12 @@ sub _flatten {
   $text =~ s/!!//g;
   return $text;
 }
-###############################################################################
 sub _wikiName {
   my $uid = shift;
 
   return Foswiki::Func::getWikiName($uid);
 }
 
-###############################################################################
 sub _extractPattern {
   my ($topicObj, $pattern) = @_;
 
@@ -1627,19 +1572,16 @@ sub _extractPattern {
   return $result;
 }
 
-###############################################################################
 sub _inlineError {
   return "<div class='foswikiAlert'>$_[0]</div>";
 }
 
-###############################################################################
 # compatibility wrapper
 sub _takeOutBlocks {
   return Foswiki::takeOutBlocks(@_) if defined &Foswiki::takeOutBlocks;
   return $Foswiki::Plugins::SESSION->renderer->takeOutBlocks(@_);
 }
 
-###############################################################################
 sub _mergeLists {
   my ($l1, $l2) = @_;
 
@@ -1655,19 +1597,15 @@ sub _mergeLists {
   return \@result;
 }
 
-###############################################################################
 # compatibility wrapper
 sub _putBackBlocks {
   return Foswiki::putBackBlocks(@_) if defined &Foswiki::putBackBlocks;
   return $Foswiki::Plugins::SESSION->renderer->putBackBlocks(@_);
 }
 
-###############################################################################
 sub _writeDebug {
   #Foswiki::Func::writeDebug('- DBCachePlugin - '.$_[0]) if TRACE;
   print STDERR "- DBCachePlugin::Core - $_[0]\n" if TRACE;
 }
-
-
 
 1;

@@ -1,14 +1,13 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1773670237" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1779878391" format="1.1" version="1"}%
 ---+!! <nop>%TOPIC%
 %FORMFIELD{"Description"}%
 
 %TOC%
 
 ---++ Description
-This is a lightweight frontend to the DBCacheContrib. The provided
-macros DBQUERY and DBCALL can be used as a replacement for SEARCH and INCLUDE
-that use the database store instead of searching and extracting on the raw
-topic files. 
+This is a lightweight frontend to the DBCacheContrib. The provided macros
+DBQUERY and DBCALL can be used as a replacement for SEARCH and INCLUDE that use
+the database store instead of searching and extracting on the raw topic files. 
 
 *DBQUERY* is provided to ease the use of
 <nop>WikiApplications based on the DBCacheContrib combining its flexible query
@@ -49,6 +48,72 @@ parameter =OBJECT= that refers to =SomeTopic=, that is the object this method ha
 
 *DBRECURSE* iterates over topics in a web following a certain topic-to-topic relation, like
 the parent-child relation among topics. You can define arbitrary relations using filters.
+
+---++ Reverse Indexes
+
+<nop>DBCachePlugin implements reverse indexes to speed up queries. There is a predefined finite set of
+indexes that can be used in =%DBQUERY= statements to speed up searches significantly. Each index
+holds a set of topics. One or more indexes can be activated in a =%DBQUERY= statement to reduce the
+set of topics being queried. If no index is specified will the complete web be iterated testing each
+topic individually for a match. The name of an index specifies a formfield, form, language or metadata name.
+
+Existing indexes are:
+
+   * =TopicType=: multi-value formfield, see [[https://foswiki.org/Extensions/WikiWorkbenchContrib][WikiWorkbenchContrib]] 
+   * =Category=: multiv-alue category field, see [[https://foswiki.org/Extensions/ClassificationPlugin][ClassificationPlugin]]
+   * =Status=: single-value formfield "Status" or "State"
+   * =form=: name of the form attached to a topic
+   * =context=: metadata name within present in a topic, see [[https://foswiki.org/Extensions/MetaDataPlugin][MetaDataPlugin]]
+   * =language=: content language of a topic
+
+For example. the following query can be rewritten to make reverse indexes:
+
+Before: 
+
+<verbatim>
+%DBQUERY{
+  "TopicType=~'\bBlogEntry\b' AND State='published'" 
+  ...
+}%
+</verbatim>
+
+After:
+
+<verbatim>
+%DBQUERY{
+  TopicType="BlogEntry"
+  State="published"
+  ...
+}%
+</verbatim>
+
+While the first query will iterate over all topics in a web, the second one will read the two named indexes
+and fetch the list of published blog entries right away. The next example will add a third index to the query
+limiting the list of blog entries to the specified category. 
+
+Instead of:
+
+<verbatim>
+%DBQUERY{
+  "TopicType=~'\bBlogEntry\b' AND State='published' AND Category=~'\bAnnouncementsCategory\b'" 
+  ...
+}%
+</verbatim>
+
+Use this:
+
+<verbatim>
+%DBQUERY{
+  TopicType="BlogEntry"
+  State="published"
+  Category="AnnouncementCategory"
+  ...
+}%
+</verbatim>
+
+Technically speaking, =%DBQURY= fetches three lists, the list of all blog entries, the list of all published topics
+and the list of all announcements and creates the intersection of them. This is a lot faster than trying to match the
+given search statement on each topic of a web.
 
 ---++ Syntax
 ---+++ DBCALL
@@ -112,6 +177,7 @@ tool or (b) as a tool to extract properties of (a set of) known topics.
                      =on= means "don't touch, this is remote content" \
 		               defaults to "on" |
 | =context="..."= | name of a hash within a topic to use a root for any queries; for example this may be used to search over all =attachments= or any custom meta data such as =comments= as per Foswiki:Extensions/MetaCommentsPlugin |
+| =&lt;index_name>="..."= | reduce the queried topics to the set of topics in the specified index. see [[#Reverse_Indexes]] |
 | =absolute_urls="on,off"= | render urls absolute (defaults to off) |
 
 Following variables are expanded in format strings:
@@ -503,6 +569,7 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  27 May 2026: | implemented reverse indexes |
 |  11 Nov 2025: | added ="$summary= and =$wikiName()= token to =%DBQUERY= |
 |  22 Jan 2025: | new multi-key sorting of search results; \
                   added =absoluteurls= to =%DBQUERY=; \

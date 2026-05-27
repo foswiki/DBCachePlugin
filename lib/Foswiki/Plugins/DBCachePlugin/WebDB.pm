@@ -13,7 +13,6 @@
 # GNU General Public License for more details, published at
 # http://www.gnu.org/copyleft/gpl.html
 #
-###############################################################################
 
 package Foswiki::Plugins::DBCachePlugin::WebDB;
 
@@ -25,6 +24,7 @@ use Foswiki::Contrib::DBCacheContrib::Search ();
 use Foswiki::Contrib::DBCacheContrib::MemMap ();
 use Foswiki::Plugins::DBCachePlugin ();
 use Foswiki::Plugins::DBCachePlugin::Hits ();
+use Foswiki::Plugins::DBCachePlugin::Index ();
 use Foswiki::Plugins::TopicTitlePlugin ();
 use Foswiki::Attrs ();
 use Foswiki::Time ();
@@ -35,17 +35,17 @@ use Foswiki::Meta ();
 use Error qw(:try);
 
 use constant TRACE => 0; # toggle me
+use constant PROFILE => 0;  # toggle me
+#use Time::HiRes (); # enable this too when profiling
 
 @Foswiki::Plugins::DBCachePlugin::WebDB::ISA = ("Foswiki::Contrib::DBCacheContrib");
 
-###############################################################################
 sub new {
   my ($class, $web, $cacheName) = @_;
 
-  $cacheName = 'DBCachePluginDB' unless $cacheName;
-
   #writeDebug("new WebDB for $web");
 
+  $cacheName //= 'DBCachePluginDB';
   my $this = bless($class->SUPER::new($web, $cacheName), $class);
   #$this->{_loadTime} = 0;
   $this->{web} = $this->{_web};
@@ -54,41 +54,142 @@ sub new {
   $this->{prevTopicCache} = ();
   $this->{nextTopicCache} = ();
   $this->{webViewPermission} = ();
+  $this->loadIndexes();
 
   return $this;
 }
 
-###############################################################################
+sub loadIndexes {
+  my $this = shift;
+
+  # TODO: add persistence 
+
+  $this->{indexes} = {};
+  $this->{indexes}{TopicType} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
+    name => "TopicType",
+    query => "TopicType",
+  );
+  $this->{indexes}{Category} = Foswiki::Plugins::DBCachePlugin::Index->new($this, query => "Category");
+  #$this->{indexes}{Tag} = Foswiki::Plugins::DBCachePlugin::Index->new($this, query => "Tag"); # ... expensive
+  $this->{indexes}{Status} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
+    name => "Status",
+    query => "Status or State"
+  );
+  $this->{indexes}{form} = Foswiki::Plugins::DBCachePlugin::Index->new($this, query => "form");
+  $this->{indexes}{context} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
+    name => "context",
+    process => sub {
+      my ($index, $obj) = @_;
+      my $topic = $obj->fastget("topic");
+      my $formName = $obj->fastget("form") // '';
+      foreach my $key ($obj->getKeys) {
+        next if $key =~ /^[_\.]/;
+        next if $key eq $formName;
+        next if $key =~ /^(info|moved)$/;
+        my $val = $obj->fastget($key);
+        next unless ref($val);
+        $index->add($key, $topic);
+      }
+    }
+  );
+  $this->{indexes}{language} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
+    name => "language",
+    process => sub {
+      my ($index, $obj) = @_;
+      my $topic = $obj->fastget("topic");
+      my $prefs = $obj->fastget("preferences");
+      my $lang = $prefs ? $prefs->fastget("LANGUAGE") : "";
+      $lang ||= "";
+      $index->add($lang, $topic);
+    }
+  );
+}
+
+sub getIndex {
+  my ($this, $propName) = @_;
+
+  return unless $propName;
+  return unless exists $this->{indexes}{$propName};
+  return $this->{indexes}{$propName};
+}
+
+sub getIndexes {
+  my $this = shift;
+
+  return values %{$this->{indexes}};
+}
+
+sub getTopics {
+  my ($this, $params, $result) = @_;
+
+  $result //= [];
+
+  my $count = 0;
+  my %entries = ();
+
+  if (@$result) {
+    %entries = map { $_ => 1 } @$result;
+    $count++;
+  }
+
+  # process indexes
+  foreach my $index ($this->getIndexes) {
+    my $name = $index->name();
+    my $key = $params->{$name};
+    next unless defined $key && $key ne "";
+    $count++;
+    if ($key =~ /[\\()|\*\+\[\]]/) { # test for regex
+      $entries{$_}++ foreach $index->find($key);
+    } else {
+      $entries{$_}++ foreach $index->get($key);
+    }
+  }
+
+  # gather topics
+  @$result = ();
+  while (my ($key, $val) = each %entries) {
+    push @$result, $key if $val == $count;
+  }
+
+  # nothing found in indexes
+  push @$result, "none" if $count && !scalar(@$result);
+
+  return $result;
+}
+
 sub clearACLCache {
   my $this = shift;
 
   undef $this->{webViewPermission};
 }
 
-###############################################################################
 sub writeDebug {
   print STDERR "- DBCachePlugin::WebDB - $_[0]\n" if TRACE;
 }
 
-###############################################################################
 # cache time we loaded the cacheFile
 sub load {
   my ($this, $refresh, $web, $topic) = @_;
 
   $refresh ||= 0;
-  writeDebug("called load($refresh, ".($web//'undef').", ".($topic//'undef')."), refresh=$refresh");
+  writeDebug("called load(".($web//'undef').", ".($topic//'undef')."), web=$this->{web}, refresh=$refresh");
 
-  if ($refresh && defined($web) && defined($topic)) {
+  my  ($readFromCache, $readFromFile, $removed) = $this->SUPER::load($refresh);
 
+  if (defined($web) && defined($topic)) {
     # refresh a single topic
-    $this->remove($topic);
-    $this->loadTopic($web, $topic);
+    if ($refresh) {
+      $this->remove($topic);
+      $this->loadTopic($web, $topic);
+      $this->indexTopic($topic);
+    }
+  } else {
+    $this->indexWeb($refresh);
   }
 
-  return $this->SUPER::load($refresh);
+  return ($readFromFile, $readFromFile, $removed);
 }
 
-###############################################################################
 # called by superclass when one or more topics had
 # to be reloaded from disc.
 sub onReload {
@@ -100,7 +201,8 @@ sub onReload {
 
   foreach my $topic (@$topics) {
     my $obj = $this->fastget($topic);
-
+    $this->indexTopic($obj);
+    
     # anything we get to see here should be in the dbcache already.
     # however we still check for odd topics that did not make it into the cache
     # for some odd reason
@@ -200,7 +302,44 @@ sub onReload {
   writeDebug("done onReload()");
 }
 
-###############################################################################
+sub indexWeb {
+  my ($this, $refresh) = @_;
+
+  my $t0;
+  $t0 = [Time::HiRes::gettimeofday] if PROFILE;
+
+  foreach my $index ($this->getIndexes()) {
+    $index->load($refresh);
+  }
+
+  if (PROFILE) {
+    my $elapsed = int(Time::HiRes::tv_interval($t0) * 1000);
+    print STDERR "PROFILE: it took $elapsed ms to index web $this->{web}\n";
+  }
+
+  #print STDERR "INDEX ($this->{web}):\n".$this->getIndex("Tag")->dump()."\n";
+}
+
+sub indexTopic {
+  my ($this, $objOrTopic) = @_;
+
+  return unless $objOrTopic;
+
+  my $obj;
+  my $topic;
+  if (ref($objOrTopic)) {
+    $obj = $objOrTopic;
+    $topic = $obj->fastget("topic");
+  } else {
+    $topic = $objOrTopic;
+    $obj = $this->fastget($topic);
+  }
+
+  foreach my $index ($this->getIndexes()) {
+    $index->addObject($obj);
+  }
+}
+
 sub getFormField {
   my ($this, $theTopic, $theFormField) = @_;
 
@@ -223,7 +362,6 @@ sub getFormField {
   return urlDecode($formfield);
 }
 
-###############################################################################
 sub getNeighbourTopics {
   my ($this, $theTopic, $theSearch, $theOrder, $theReverse, $theTopics) = @_;
 
@@ -262,7 +400,6 @@ sub getNeighbourTopics {
   return ($prevTopic, $nextTopic);
 }
 
-###############################################################################
 sub dbQuery {
   my ($this, $theSearch, $theTopics, $theSort, $theReverse, $theInclude, $theExclude, $hits, $theContext) = @_;
 
@@ -277,6 +414,8 @@ sub dbQuery {
   }
   @topicNames = grep {/$theInclude/} @topicNames if $theInclude;
   @topicNames = grep {!/$theExclude/} @topicNames if $theExclude;
+
+  #print STDERR "dbQuery(".($theSearch//'undef').") in $this->{web} with ".scalar(@topicNames)." topics\n";
 
   # parse & fetch
   my $search;
@@ -331,7 +470,6 @@ sub dbQuery {
   return $hits;
 }
 
-###############################################################################
 sub expandPath {
   my ($this, $theRoot, $thePath) = @_;
 
@@ -480,7 +618,6 @@ sub expandPath {
   return $result;
 }
 
-###############################################################################
 sub hasAccess {
   my ($this, $mode, $topic, $obj, $wikiName) = @_;
  
@@ -512,20 +649,18 @@ sub hasAccess {
   return $this->hasTopicAccess($mode, $wikiName, $obj);
 }
 
-###############################################################################
 sub hasWebAccess {
   my ($this, $mode, $wikiName) = @_;
 
   $wikiName //= Foswiki::Func::getWikiName();
 
   unless (defined $this->{webViewPermission}{$wikiName}) {
-    $this->{webViewPermission}{$wikiName} = Foswiki::Func::checkAccessPermission($mode, $wikiName, undef, undef, $this->{web})?1:0;
+    $this->{webViewPermission}{$wikiName} = Foswiki::Func::checkAccessPermission(uc($mode), $wikiName, undef, undef, $this->{web})?1:0;
   }
 
   return $this->{webViewPermission}{$wikiName};
 }
 
-###############################################################################
 # a variation reading acls from cache instead from raw txt
 sub hasTopicAccess {
   my ($this, $mode, $user, $obj) = @_;
@@ -594,7 +729,6 @@ sub hasTopicAccess {
   return 1;
 }
 
-###############################################################################
 sub getACL {
   my ($this, $obj, $mode) = @_;
 
@@ -623,7 +757,6 @@ sub getACL {
   return \@list;
 }
 
-###############################################################################
 sub getPreference {
   my ($this, $obj, $key) = @_;
 
@@ -644,7 +777,6 @@ sub getPreference {
   return urlDecode($value);
 }
 
-###############################################################################
 # from Foswiki.pm
 sub urlDecode {
   my $text = shift;
