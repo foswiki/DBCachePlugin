@@ -53,8 +53,7 @@ sub new {
   );
 
   my $query = Foswiki::Func::getCgiQuery();
-  my $memoryCache = $Foswiki::cfg{DBCachePlugin}{MemoryCache};
-  $memoryCache = 1 unless defined $memoryCache;
+  my $memoryCache = $Foswiki::cfg{DBCachePlugin}{MemoryCache} // 1;
 
   $this->{doRefresh} = 0;
 
@@ -154,8 +153,7 @@ sub handleNeighbours {
   my $baseTopic = $session->{topicName};
   my ($theWeb, $theTopic) = Foswiki::Func::normalizeWebTopicName($params->{web} || $baseWeb, $params->{topic} || $baseTopic);
 
-  my $theSearch = $params->{_DEFAULT};
-  $theSearch = $params->{search} unless defined $theSearch;
+  my $theSearch = $params->{_DEFAULT} // $params->{search} // '';
 
   my $theFormat = $params->{format} || '$web.$topic';
   my $theOrder = $params->{sort} || $params->{order} || 'created';
@@ -163,8 +161,6 @@ sub handleNeighbours {
   my $doWarnings = Foswiki::Func::isTrue($params->{warn}, 1);
   my $theNullFormat = $params->{nullformat} || '';
   my @theTopics = split(/\s*,\s*/, $params->{topics} || '');
-
-  return $doWarnings ? _inlineError("ERROR: no \"search\" parameter in DBPREV/DBNEXT") : "" unless $theSearch;
 
   #_writeDebug('theFormat='.$theFormat);
   #_writeDebug('theSearch='. $theSearch) if $theSearch;
@@ -257,15 +253,15 @@ sub handleDBQUERY {
   my $thisTopic = $params->{topic} || '';
   my $thisWeb = $params->{web} || $baseWeb;
   my $theWebs = $params->{webs};
-  my $theTopics = $params->{topics} || '';
-  my $theFormat = $params->{format};
-  my $theHeader = $params->{header} || '';
-  my $theFooter = $params->{footer} || '';
+  my $theTopics = $params->{topics} // '';
+  my $theFormat = $params->{format} // '$topic';
+  my $theHeader = $params->{header} // '';
+  my $theFooter = $params->{footer} // '';
   my $theInclude = $params->{include};
   my $theExclude = $params->{exclude};
   my $theSort = $params->{sort} || $params->{order} || 'name';
   my $theReverse = $params->{reverse} || 'off';
-  my $theSep = $params->{separator};
+  my $theSep = $params->{separator} // $params->{sep} // '$n';
   my $theLimit = $params->{limit} || '';
   my $theSkip = $params->{skip} || 0;
   my $theHideNull = Foswiki::Func::isTrue($params->{hidenull}, 0);
@@ -277,10 +273,7 @@ sub handleDBQUERY {
   my $doAbsoluteUrls = Foswiki::Func::isTrue($params->{absoluteurls}, 0);
   my $theDateLanguage = $params->{datelanguage} // $session->i18n->language() // 'en';
 
-  $theFormat = '$topic' unless defined $theFormat;
   $theFormat = '' if $theFormat eq 'none';
-  $theSep = $params->{sep} unless defined $theSep;
-  $theSep = '$n' unless defined $theSep;
   $theSep = '' if $theSep eq 'none';
 
   # get the regexes
@@ -379,8 +372,8 @@ sub handleDBQUERY {
       my $web = $obj->fastget("web");
       $theDB = $this->getDB($web) if !$theDB || $lastWeb ne $web;
       $lastWeb = $web;
-      unless ($theWeb) {
-        print STDERR "ERROR: no such web $theWeb in DBQUERY\n";
+      unless ($theDB) {
+        print STDERR "ERROR: no such web $theWeb in DBQUERY while reading $topicName\n";
         next;
       }
 
@@ -525,10 +518,8 @@ sub findTopicMethod {
 
     my $targetWeb;
     my $target = $formObj->fastget('Target');
-    if ($target) {
-      $targetWeb = $1 if $target =~ /^(.*)[.\/](.*?)$/;
-    }
-    $targetWeb = $formWeb unless defined $targetWeb;
+    $targetWeb = $1 if $target && $target =~ /^(.*)[.\/](.*?)$/;
+    $targetWeb //= $formWeb;
 
     #_writeDebug("5");
 
@@ -712,9 +703,9 @@ sub handleDBSTATS {
   my $thePattern = $params->{pattern} // '^(.*)$';
   my $theSplit = $params->{split} // '\s*,\s*';
   my $theHeader = $params->{header} // '';
-  my $theFormat = $params->{format};
+  my $theFormat = $params->{format} // '   * $key: $count';
   my $theFooter = $params->{footer} // '';
-  my $theSep = $params->{separator};
+  my $theSep = $params->{separator} // $params->{sep} // '$n';
   my $theFields = $params->{fields} // $params->{field} // 'text';
   my $theSort = $params->{sort} // $params->{order} // 'alpha';
   my $theReverse = Foswiki::Func::isTrue($params->{reverse}, 0);
@@ -730,10 +721,6 @@ sub handleDBSTATS {
   $theKeyNumber =~ s/[^\d]//g;
   $theKeyNumber -= 1;
   $theLimit =~ s/[^\d]//g;
-
-  $theFormat = '   * $key: $count' unless defined $theFormat;
-  $theSep = $params->{sep} unless defined $theSep;
-  $theSep = '$n' unless defined $theSep;
 
   # get the regexes
   $theInclude = join("|", split(/\s*,\s*/, $theInclude)) if $theInclude;
@@ -754,9 +741,7 @@ sub handleDBSTATS {
   my $search;
   if (defined $theSearch && $theSearch ne '') {
     $search = new Foswiki::Contrib::DBCacheContrib::Search($theSearch);
-    unless ($search) {
-      return "ERROR: can't parse query $theSearch";
-    }
+    return "ERROR: can't parse query $theSearch" unless $search;
   }
 
   # get webs
@@ -786,6 +771,8 @@ sub handleDBSTATS {
     } else {
       @topicNames = $theDB->getKeys();
     }
+    $theDB->getTopics($params, \@topicNames);
+
     foreach my $topicName (@topicNames) {    # loop over all topics
       my $topicObj = $theDB->fastget($topicName);
       next unless $topicObj;
@@ -1500,7 +1487,7 @@ sub _quotesEncode {
 sub _entityEncode {
   my $text = shift;
 
-  $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>\\@[_\|])/'&#'.ord($1).';'/ge;
+  $text =~ s/([[\x01-\x09\x0b\x0c\x0e-\x1f"%&'*<=>\\@[_\|\n])/'&#'.ord($1).';'/ge;
 
   return $text;
 }

@@ -40,43 +40,24 @@ use constant PROFILE => 0;  # toggle me
 
 @Foswiki::Plugins::DBCachePlugin::WebDB::ISA = ("Foswiki::Contrib::DBCacheContrib");
 
-sub new {
-  my ($class, $web, $cacheName) = @_;
-
-  #writeDebug("new WebDB for $web");
-
-  $cacheName //= 'DBCachePluginDB';
-  my $this = bless($class->SUPER::new($web, $cacheName), $class);
-  #$this->{_loadTime} = 0;
-  $this->{web} = $this->{_web};
-  $this->{web} =~ s/\./\//g;
-
-  $this->{prevTopicCache} = ();
-  $this->{nextTopicCache} = ();
-  $this->{webViewPermission} = ();
-  $this->loadIndexes();
-
-  return $this;
-}
-
-sub loadIndexes {
-  my $this = shift;
-
-  # TODO: add persistence 
-
-  $this->{indexes} = {};
-  $this->{indexes}{TopicType} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
-    name => "TopicType",
+our %knownIndexes = (
+  TopicType => {
     query => "TopicType",
-  );
-  $this->{indexes}{Category} = Foswiki::Plugins::DBCachePlugin::Index->new($this, query => "Category");
-  #$this->{indexes}{Tag} = Foswiki::Plugins::DBCachePlugin::Index->new($this, query => "Tag"); # ... expensive
-  $this->{indexes}{Status} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
+  },
+  Category => {
+    query => "Category"
+  },
+  Tag => {
+    query => "Tag" # ... expensive
+  },
+  Status => {
     name => "Status",
     query => "Status or State"
-  );
-  $this->{indexes}{form} = Foswiki::Plugins::DBCachePlugin::Index->new($this, query => "form");
-  $this->{indexes}{context} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
+  },
+  form => {
+    query => "form",
+  },
+  context => {
     name => "context",
     process => sub {
       my ($index, $obj) = @_;
@@ -91,9 +72,8 @@ sub loadIndexes {
         $index->add($key, $topic);
       }
     }
-  );
-  $this->{indexes}{language} = Foswiki::Plugins::DBCachePlugin::Index->new($this, 
-    name => "language",
+  },
+  language => {
     process => sub {
       my ($index, $obj) = @_;
       my $topic = $obj->fastget("topic");
@@ -102,19 +82,53 @@ sub loadIndexes {
       $lang ||= "";
       $index->add($lang, $topic);
     }
-  );
+  }
+);
+
+sub new {
+  my ($class, $web, $cacheName) = @_;
+
+  #writeDebug("new WebDB for $web");
+
+  $cacheName //= 'DBCachePluginDB';
+  my $this = bless($class->SUPER::new($web, $cacheName), $class);
+  #$this->{_loadTime} = 0;
+  $this->{web} = $this->{_web};
+  $this->{web} =~ s/\./\//g;
+
+  $this->{prevTopicCache} = ();
+  $this->{nextTopicCache} = ();
+  $this->{webViewPermission} = ();
+
+  #print STDERR "known indexes=".join(", ", sort keys %knownIndexes)."\n";
+
+  return $this;
 }
 
 sub getIndex {
-  my ($this, $propName) = @_;
+  my ($this, $indexName) = @_;
 
-  return unless $propName;
-  return unless exists $this->{indexes}{$propName};
-  return $this->{indexes}{$propName};
+  return unless $indexName;
+  return unless exists $knownIndexes{$indexName};
+
+  #print STDERR "called getIndex($indexName) for $this->{web}\n";
+  my $index = $this->{indexes}{$indexName};
+  unless ($index) {
+    $index = $this->{indexes}{$indexName} = Foswiki::Plugins::DBCachePlugin::Index->new($this,
+      name => $indexName,
+      %{$knownIndexes{$indexName}}
+    );
+  }
+
+  return $index;
 }
 
 sub getIndexes {
   my $this = shift;
+
+  foreach my $indexName (keys %knownIndexes) {
+    $this->getIndex($indexName);
+  }
 
   return values %{$this->{indexes}};
 }
@@ -133,12 +147,16 @@ sub getTopics {
   }
 
   # process indexes
-  foreach my $index ($this->getIndexes) {
-    my $name = $index->name();
-    my $key = $params->{$name};
+  foreach my $indexName (keys %knownIndexes) {
+    my $key = $params->{$indexName};
     next unless defined $key && $key ne "";
+
+    #print STDERR "using index $indexName\n";
+    my $index = $this->getIndex($indexName);
+
     $count++;
-    if ($key =~ /[\\()|\*\+\[\]]/) { # test for regex
+
+    if ($key =~ /[\\()|\*\+\[\]?]/) { # SMELL: naiv test for regex 
       $entries{$_}++ foreach $index->find($key);
     } else {
       $entries{$_}++ foreach $index->get($key);
@@ -196,8 +214,6 @@ sub onReload {
   my ($this, $topics) = @_;
 
   writeDebug("called onReload() of web=$this->{web}");
-  my $session = $Foswiki::Plugins::SESSION;
-  my $topicTitleField;
 
   foreach my $topic (@$topics) {
     my $obj = $this->fastget($topic);
@@ -209,93 +225,6 @@ sub onReload {
     unless ($obj) {
       writeDebug("trying to load topic '$topic' in web '$this->{web}' but it wasn't found in the cache");
       next;
-    }
-
-    # get meta object
-    my ($meta, $text) = Foswiki::Func::readTopic($this->{web}, $topic);
-    $meta->loadVersion();
-    $this->cleanUpText($text);
-    $text //= "";
-
-    writeDebug("reloading $topic");
-
-    # createdate
-    my ($createDate, $createAuthor) = Foswiki::Func::getRevisionInfo($this->{web}, $topic, 1);
-    $obj->set('createdate', $createDate);
-    $obj->set('createauthor', $createAuthor);
-
-    # get default section
-    my $defaultSection = $text;
-    $defaultSection =~ s/.*?%STARTINCLUDE%//s;
-    $defaultSection =~ s/%STOPINCLUDE%.*//s;
-
-    $obj->set('_sectiondefault', $defaultSection);
-
-    # get named sections
-
-    # CAUTION: %SECTION will be deleted in the near future.
-    # so please convert all %SECTION to %STARTSECTION
-
-    my $archivist = $this->getArchivist();
-
-    my @sections = ();
-    while ($text =~ s/%(?:START)?SECTION\{(.*?)\}%(.*?)%(?:STOP|END)SECTION\{[^}]*?"(.*?)"\s*\}%//s) {
-      my $attrs = new Foswiki::Attrs($1);
-      my $name = $attrs->{name} || $attrs->{_DEFAULT} || '';
-      my $sectionText = $2;
-      push @sections, $name;
-      $obj->set("_section$name", $sectionText);
-    }
-    $obj->set('_sections', join(", ", @sections));
-
-    my $form = $obj->getForm();
-
-    # get topic title
-    my $topicTitle = Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $topic, undef, $meta);
-    #print STDERR "... found topicTitle: ".($topicTitle//'undef')."\n";
-    $obj->set('topictitle', $topicTitle);
-
-    # get webtitle
-    $obj->set('webtitle', Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $Foswiki::cfg{HomeTopicName}));
-
-    # This is to maintain the Inheritance formfield for the WikiWorkbenchContrib
-    if ($form) {
-      my $topicType = $form->fastget("TopicType");
-      if ($topicType && $topicType =~ /\bTopicType\b/) {
-        my $metaForm = Foswiki::Form->new($session, $this->{web}, $topic);
-        my $field = $metaForm->getField("TopicType");
-        if ($field) {
-          my $inheritance = join(", ", sort grep {!/^$topic$/} split(/\s*,\s*/, $field->{value}));
-          $form->set("Inheritance", $inheritance);
-        }
-      }
-    }
-
-    # index thumbnail
-    my @attachments = sort { lc($a->{comment}||$a->{name}) cmp lc($b->{comment}||$b->{name}) } 
-      $meta->find("FILEATTACHMENT");
-    my $thumbnail;
-    foreach my $attachment (@attachments) {
-      $attachment->{attr} //= "";
-      if ($attachment->{attr} =~ /t/) {
-        $thumbnail = $attachment;
-        last;
-      }
-      if (!$thumbnail && $attachment->{name} =~ /\.(jpe?g|gif|png|bmp|webp|avif)$/i) {
-        $thumbnail = $attachment;
-      }
-    }
-    if ($thumbnail) {
-      writeDebug("thumbnail=$thumbnail->{name}, attr=$thumbnail->{attr}");
-      $obj->set("thumbnail", $thumbnail->{name});
-    }
-
-    # call index topic handlers
-    my %seen;
-    foreach my $sub (@Foswiki::Plugins::DBCachePlugin::knownIndexTopicHandler) {
-      next if $seen{$sub};
-      &$sub($this, $obj, $this->{web}, $topic, $meta, $text);
-      $seen{$sub} = 1;
     }
   }
 
@@ -335,7 +264,98 @@ sub indexTopic {
     $obj = $this->fastget($topic);
   }
 
+  my $session = $Foswiki::Plugins::SESSION;
+
+  # get meta object
+  my ($meta, $text) = Foswiki::Func::readTopic($this->{web}, $topic);
+  $meta->loadVersion();
+  $this->cleanUpText($text);
+  $text //= "";
+
+  writeDebug("reloading $topic");
+
+  # createdate
+  my ($createDate, $createAuthor) = Foswiki::Func::getRevisionInfo($this->{web}, $topic, 1);
+  $obj->set('createdate', $createDate);
+  $obj->set('createauthor', $createAuthor);
+
+  # get default section
+  my $defaultSection = $text;
+  $defaultSection =~ s/.*?%STARTINCLUDE%//s;
+  $defaultSection =~ s/%STOPINCLUDE%.*//s;
+
+  $obj->set('_sectiondefault', $defaultSection);
+
+  # get named sections
+
+  # CAUTION: %SECTION will be deleted in the near future.
+  # so please convert all %SECTION to %STARTSECTION
+
+  my $archivist = $this->getArchivist();
+
+  my @sections = ();
+  while ($text =~ s/%(?:START)?SECTION\{(.*?)\}%(.*?)%(?:STOP|END)SECTION\{[^}]*?"(.*?)"\s*\}%//s) {
+    my $attrs = new Foswiki::Attrs($1);
+    my $name = $attrs->{name} || $attrs->{_DEFAULT} || '';
+    my $sectionText = $2;
+    push @sections, $name;
+    $obj->set("_section$name", $sectionText);
+  }
+  $obj->set('_sections', join(", ", @sections));
+
+  my $form = $obj->getForm();
+
+  # get topic title
+  my $topicTitle = Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $topic, undef, $meta);
+  #print STDERR "... found topicTitle: ".($topicTitle//'undef')."\n";
+  $obj->set('topictitle', $topicTitle);
+
+  # get webtitle
+  $obj->set('webtitle', Foswiki::Plugins::TopicTitlePlugin::getTopicTitle($this->{web}, $Foswiki::cfg{HomeTopicName}));
+
+  # This is to maintain the Inheritance formfield for the WikiWorkbenchContrib
+  if ($form) {
+    my $topicType = $form->fastget("TopicType");
+    if ($topicType && $topicType =~ /\bTopicType\b/) {
+      my $metaForm = Foswiki::Form->new($session, $this->{web}, $topic);
+      my $field = $metaForm->getField("TopicType");
+      if ($field) {
+        my $inheritance = join(", ", sort grep { !/^$topic$/ } split(/\s*,\s*/, $field->{value}));
+        $form->set("Inheritance", $inheritance);
+      }
+    }
+  }
+
+  # call index topic handlers
+  my %seen;
+  foreach my $sub (@Foswiki::Plugins::DBCachePlugin::knownIndexTopicHandler) {
+    next if $seen{$sub};
+    &$sub($this, $obj, $this->{web}, $topic, $meta, $text);
+    $seen{$sub} = 1;
+  }
+
+  # index thumbnail
+  my @attachments = sort { lc($a->{comment}||$a->{name}) cmp lc($b->{comment}||$b->{name}) }
+    $meta->find("FILEATTACHMENT");
+
+  my $thumbnail;
+  foreach my $attachment (@attachments) {
+    $attachment->{attr} //= "";
+    if ($attachment->{attr} =~ /t/) {
+      $thumbnail = $attachment;
+      last;
+    }
+    if (!$thumbnail && $attachment->{name} =~ /\.(jpe?g|gif|png|bmp|webp|avif)$/i) {
+      $thumbnail = $attachment;
+    }
+  }
+  if ($thumbnail) {
+    writeDebug("thumbnail=$thumbnail->{name}, attr=$thumbnail->{attr}");
+    $obj->set("thumbnail", $thumbnail->{name});
+  }
+
   foreach my $index ($this->getIndexes()) {
+    $index->removeObject($obj);
     $index->addObject($obj);
   }
 }

@@ -27,6 +27,7 @@ sub new {
   my $class = shift;
   my $db = shift;
 
+
   my $this = bless({
     db => $db,
     data => {},
@@ -35,6 +36,8 @@ sub new {
   }, $class);
 
   $this->{name} //= $this->{query};
+
+  print STDERR "new index $this->{name}\n" if TRACE;
 
   return $this;
 }
@@ -66,7 +69,7 @@ sub find {
   my %hits = ();
 
   #print STDERR "called find($query) in \n";
-  #print STDERR $this->dump()."\n";
+  #print STDERR $this->dumpIndex()."\n";
 
   foreach my $key (%{$this->{data}}) {
     next unless $key =~ /$query/;
@@ -89,6 +92,8 @@ sub remove {
 
 sub addObject {
   my ($this, $obj) = @_;
+
+  return unless $obj;
 
   if (defined $this->{process}) {
     &{$this->{process}}($this, $obj);
@@ -121,7 +126,7 @@ sub removeObject {
   }
 }
 
-sub dump {
+sub dumpIndex {
   my $this = shift;
 
   my @lines = ();
@@ -137,6 +142,8 @@ sub dump {
 sub load {
   my ($this, $refresh) = @_;
 
+  # TODO: add persistence
+
   return if !$refresh && $this->{isLoaded};
 
   my $db = $this->{db};
@@ -147,7 +154,7 @@ sub load {
   }
 
   $this->{isLoaded} = 1;
-  #print STDERR $this->getIndex("Category")->dump."\n";
+  #print STDERR $this->getIndex("Category")->dumpIndex."\n";
 }
 
 1;

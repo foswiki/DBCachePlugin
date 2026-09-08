@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="ProjectContributor" comment="" date="1779878391" format="1.1" version="1"}%
+%META:TOPICINFO{author="ProjectContributor" comment="" date="1788860095" format="1.1"  version="1"}%
 ---+!! <nop>%TOPIC%
 %FORMFIELD{"Description"}%
 
@@ -53,14 +53,15 @@ the parent-child relation among topics. You can define arbitrary relations using
 
 <nop>DBCachePlugin implements reverse indexes to speed up queries. There is a predefined finite set of
 indexes that can be used in =%DBQUERY= statements to speed up searches significantly. Each index
-holds a set of topics. One or more indexes can be activated in a =%DBQUERY= statement to reduce the
+holds a set of topics. One or more indexes can be activated in a =%DBQUERY= or =%DBSATS= statement to reduce the
 set of topics being queried. If no index is specified will the complete web be iterated testing each
 topic individually for a match. The name of an index specifies a formfield, form, language or metadata name.
 
 Existing indexes are:
 
    * =TopicType=: multi-value formfield, see [[https://foswiki.org/Extensions/WikiWorkbenchContrib][WikiWorkbenchContrib]] 
-   * =Category=: multiv-alue category field, see [[https://foswiki.org/Extensions/ClassificationPlugin][ClassificationPlugin]]
+   * =Category=: multi-value category field, see [[https://foswiki.org/Extensions/ClassificationPlugin][ClassificationPlugin]]
+   * =Tag=: multi-value tags field, see [[https://foswiki.org/Extensions/ClassificationPlugin][ClassificationPlugin]]
    * =Status=: single-value formfield "Status" or "State"
    * =form=: name of the form attached to a topic
    * =context=: metadata name within present in a topic, see [[https://foswiki.org/Extensions/MetaDataPlugin][MetaDataPlugin]]
@@ -82,7 +83,7 @@ After:
 <verbatim>
 %DBQUERY{
   TopicType="BlogEntry"
-  State="published"
+  Status="published"
   ...
 }%
 </verbatim>
@@ -105,7 +106,7 @@ Use this:
 <verbatim>
 %DBQUERY{
   TopicType="BlogEntry"
-  State="published"
+  Status="published"
   Category="AnnouncementCategory"
   ...
 }%
@@ -569,6 +570,9 @@ automatically from there on.
 ---++ Change History
 
 %TABLE{columnwidths="7em" tablewidth="100%"}%
+|  27 Aug 2026: | lazy load indexes; added new index for tags |
+|  15 Jul 2026: | fixed reindexing an topic after save |
+|  02 Jul 2026: | added support for reverse indexes to =%DBSTATS= |
 |  27 May 2026: | implemented reverse indexes |
 |  11 Nov 2025: | added ="$summary= and =$wikiName()= token to =%DBQUERY= |
 |  22 Jan 2025: | new multi-key sorting of search results; \
